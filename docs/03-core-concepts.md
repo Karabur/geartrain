@@ -89,6 +89,27 @@ Both memory and knowledge base use dual-format storage:
 ### Tool
 A capability available to an agent — file operations, shell commands, API calls, search, etc. Tools are defined in the system and assigned to agents via their definitions. An agent can only use tools explicitly granted to it.
 
+### Tool Runtime Policy
+Deterministic rules the engine applies around tool use. Policies include retry attempts, timeout limits, transient-error handling, fallback behavior, and escalation. These rules live in configuration so the system doesn't spend tokens asking the LLM to rediscover the same control flow on every run.
+
+### Workflow Failure Policy
+Rules that define what happens when a workflow step produces a bad output, an agent makes a mistake, an external API fails, an LLM call fails, or a tool returns invalid data. Policies can validate outputs, retry transient failures, ask an agent to repair its output, route to a fallback step, or escalate to a human.
+
+### Model Routing
+Configuration that chooses which model handles a given agent, workflow node, or action. Routing can be coarse-grained (the reviewer agent uses one model, the classifier uses another) or fine-grained (the same agent uses a stronger model for planning and a cheaper model for summarization). The engine resolves routing at runtime using team and engine configuration.
+
+### Observability
+Structured visibility into what agents and workflows are doing. Observability covers token usage, cost, latency, tool usage, retries, repeated invocations, failed LLM calls, failed tool calls, validation failures, workflow outcomes, and human escalations.
+
+### Eval
+A repeatable test of agent or workflow behavior. Evals help teams detect behavior drift, compare models, validate prompt changes, tune model routing, and upgrade models without breaking workflows.
+
+### MCP Server
+A Model Context Protocol server that exposes tools or data sources to agents through a standard interface. GearTrain should provide a curated default set for common development work, while still allowing teams to configure additional servers per workspace or engine.
+
+### ACP
+Agent Client Protocol. Future GearTrain support should let an ACP-capable IDE connect to the running engine, making the engine available inside the user's preferred development environment.
+
 ### Trigger
 What starts a workflow run. Types include:
 - **Manual** — user explicitly starts a run

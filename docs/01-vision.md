@@ -27,6 +27,16 @@ The architecture isn't just an organizational choice — it produces concrete ad
 
 **Rich automatic context.** Agents receive structured context about their running environment (engine, team, integrations), the project they're working in (memory, knowledge base, conventions), and the specific task at hand (workflow state, upstream outputs, relevant history). This context is assembled automatically from GearTrain's layered configuration — agents don't hunt for it, and humans don't hand-assemble it.
 
+**Deterministic runtime control.** GearTrain handles repeatable execution behavior in the engine instead of asking the LLM to decide every time. Tool retries, timeout handling, fallback paths, and escalation rules can be defined once in workflow configuration. This saves tokens and makes failures easier to reason about because control flow is explicit, not hidden inside a model response.
+
+**Failure-aware workflow execution.** GearTrain isn't just a way to chain agents and tools together. It should make workflow failure modes explicit and easy to handle: bad agent outputs, invalid tool results, external API failures, repeated LLM call failures, agent mistakes, timeouts, and anything else that can go wrong during a long-running workflow. Teams define validation, retry, fallback, repair, and human-escalation paths as part of the workflow.
+
+**Model routing and cost control.** Different agents can use different models based on their role, and the same agent can switch models for different task types. A planning step can use a stronger model, while formatting, classification, or simple tool coordination can use a cheaper one. Teams control quality and cost through configuration instead of rewriting agents.
+
+**Observability and evals for agent behavior.** Future GearTrain workflows should expose enough telemetry to understand and improve agent behavior over time: token usage, tool usage, repeated invocations, failed LLM calls, failed tool calls, retries, latency, cost, and outcome quality. Evals turn that telemetry into controlled model upgrades, model routing decisions, prompt changes, and drift detection instead of guessing whether an agent still behaves correctly.
+
+**Sane integration defaults.** GearTrain can ship with a curated set of MCP servers so agents have useful, predictable tool access from the start. Future ACP support should let users connect the runtime engine to their IDE of choice, which matters most for development workflows where the agent needs to work close to the code, terminal, and editor.
+
 ## Core Principles
 
 ### 1. No-Code Configuration, Full Customization

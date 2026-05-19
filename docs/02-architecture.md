@@ -62,6 +62,11 @@ llm:
   provider: ${engine.llm.default}   # resolved from the user's engine config
   model: ${engine.llm.model}
   temperature: 0.2
+  # Optional per-action model routing can override this default.
+  routes:
+    plan: ${engine.llm.strong_model}
+    summarize: ${engine.llm.cheap_model}
+    classify: ${engine.llm.cheap_model}
 
 system_prompt: |
   You are a senior software engineer working on ${project.name}.
@@ -85,6 +90,15 @@ guardrails:
   forbidden_paths:
     - "*.env"
     - "secrets/*"
+
+runtime:
+  tool_retries:
+    max_attempts: 2
+    retry_on: [timeout, transient_error]
+  output_validation:
+    schema: code_change_result
+    on_invalid: repair
+  on_failure: escalate
 ```
 
 ### Agent Registry
@@ -310,7 +324,12 @@ Runtime environment that executes workflows. Manages state, scheduling, concurre
 - **State Management:** Persists workflow state across interruptions (LangGraph checkpointing)
 - **Concurrency:** Runs multiple workflow instances; manages agent resource contention
 - **Scheduling:** Cron-like triggers for periodic workflows
+- **Deterministic Tool Control:** Applies configured tool retries, timeouts, fallback paths, and escalation rules outside the LLM loop
+- **Failure Handling:** Routes bad outputs, agent mistakes, external API failures, repeated LLM call failures, and invalid tool results through configured repair, retry, fallback, or human-escalation paths
+- **Model Routing:** Resolves per-agent and per-action model choices so workflows can spend stronger models where they matter and cheaper models where they are enough
 - **Health Monitoring:** Tracks active workflows, agent utilization, error rates
+- **Observability:** Captures token usage, cost, latency, tool usage, repeated invocations, retries, failed LLM calls, failed tool calls, and workflow outcomes
+- **Evals:** Runs workflow and agent behavior checks to detect drift, compare models, validate prompt changes, and support controlled model upgrades
 - **Hot Reload:** Picks up agent/workflow definition changes without restart
 - **Workspace Loading:** Loads the repo's default `.geartrain/workspace.yaml` unless a different workspace path is provided
 
@@ -329,10 +348,25 @@ port: 8420
 # provider/model names, not credentials directly.
 # Future: team-level provisioning can supply per-user LLM and CLI credentials centrally.
 llm:
+  default: anthropic
+  strong_model: ${env.GEARTRAIN_STRONG_MODEL}
+  cheap_model: ${env.GEARTRAIN_CHEAP_MODEL}
+
   anthropic:
     api_key: ${env.ANTHROPIC_API_KEY}
   openai:
     api_key: ${env.OPENAI_API_KEY}
+
+mcp_servers:
+  filesystem:
+    command: ${env.GEARTRAIN_MCP_FILESYSTEM_COMMAND}
+    args: ["${project.repo}"]
+  github:
+    command: ${env.GEARTRAIN_MCP_GITHUB_COMMAND}
+
+acp:
+  enabled: false
+  # Future: expose the running engine to ACP-capable IDEs.
 
 cli_agents:
   claude_code:
@@ -359,6 +393,24 @@ state:
 logging:
   level: info
   output: ./logs/
+
+observability:
+  traces: true
+  metrics:
+    - token_usage
+    - cost
+    - latency
+    - tool_usage
+    - retries
+    - failed_llm_calls
+    - failed_tool_calls
+    - workflow_outcomes
+
+evals:
+  enabled: false
+  suites:
+    - workflow_regression
+    - model_upgrade
 ```
 
 ---
@@ -416,10 +468,13 @@ Pluggable connectors to external services. Each integration provides:
 - **Events** — what the integration can trigger on (PR created, message received)
 - **Data** — what information can be read (issues, messages, metrics)
 
+MCP servers are engine-scoped tool providers. GearTrain should include a sane default set for common development workflows, then let teams add or remove servers per workspace. ACP is a future channel/runtime bridge that should let an ACP-capable IDE talk to the running GearTrain engine directly.
+
 Integration registry (extensible):
 
 | Category | Services | MVP Status |
 |----------|----------|------------|
+| Agent Tools | MCP servers | Basic curated set: **In scope** |
 | Version Control | GitHub, GitLab | GitHub: **In scope** |
 | Issue Tracking | Linear, Jira, GitHub Issues | GitHub Issues: **In scope** |
 | Communication | Slack, Telegram, Email | Deferred |
@@ -427,6 +482,7 @@ Integration registry (extensible):
 | Cloud | AWS, GCP, Azure | Deferred |
 | CI/CD | GitHub Actions, CircleCI | Deferred |
 | Documentation | Notion, Confluence | Deferred |
+| IDE Runtime Bridge | ACP | Deferred |
 
 ---
 
@@ -452,6 +508,13 @@ Configurations use variable interpolation with scoped resolution:
 - [To be defined] Rollback mechanisms for workflow definitions
 
 ### Observability
-- [To be defined] Structured logging format
-- [To be defined] Metrics collection (agent performance, workflow completion rates)
-- [To be defined] Tracing across multi-agent workflows
+Observability is required for long-running agent workflows because failures can come from the model, the prompt, the tool, the external API, the workflow definition, or the surrounding runtime. GearTrain should emit structured traces and metrics for each workflow run, agent invocation, LLM call, and tool call.
+
+Minimum telemetry:
+- Token usage and estimated cost by workflow, agent, model, and step
+- LLM call count, failed LLM calls, retries, latency, and response validation failures
+- Tool usage, failed tool calls, retries, timeouts, and fallback paths
+- Repeated invocations and repair loops
+- Workflow outcomes, human escalations, and failed terminal states
+
+Evals build on this telemetry. They compare prompts, models, routing rules, and workflow definitions against known tasks so teams can control behavior drift, optimize cost, and upgrade models without relying on anecdotes.
