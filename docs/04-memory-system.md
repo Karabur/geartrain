@@ -274,10 +274,14 @@ An agent writes an entry. The system:
 An agent requests relevant entries for its current context. The system:
 1. Determines the agent's accessible scopes (instance + workflow + workspace + agent-level)
 2. Determines which system(s) to query (memory, knowledge base, or both)
-3. Performs semantic search with the query
-4. Applies metadata filters (system, scope, category, tags)
-5. Ranks results by relevance, recency, confidence, and access patterns
-6. Returns top-K results with metadata
+3. Rewrites or expands the query when the runtime can do that cheaply and safely
+4. Performs keyword or semantic search with the query
+5. Applies metadata filters (system, scope, category, tags, source, freshness)
+6. Ranks results by relevance, recency, confidence, and access patterns
+7. Enforces top-k limits, relevance thresholds, and context budget limits
+8. Returns compact results with metadata and source references
+
+Retrieval should be precise by default. A smaller model benefits more from five relevant entries than from twenty loosely related ones. The memory interface should support better ranking, filtering, chunking, and compression later without changing the agent-facing tools.
 
 ### Forget
 An entry is marked as deprecated or removed. The system:
@@ -338,8 +342,8 @@ For the 2-week MVP, the system is simplified:
 |---------|-----|--------|
 | Memory/KB separation | Single git-backed markdown store with `system` tag | Separate storage and interfaces |
 | Workspace memory | Markdown files with YAML frontmatter in `.geartrain/memory/workspace/` | Dual-format with vector store |
-| Workflow memory | Markdown files for reusable workflow memory and run summaries; LangGraph state for active run state | Persistent, queryable workflow state and dual-format memory |
-| Agent-instance memory | In-process state (LangGraph state) | Persistent with promotion |
+| Workflow memory | Markdown files for reusable workflow memory, run summaries, and active run state where useful | Persistent, queryable workflow state and dual-format memory |
+| Agent-instance memory | Plain text context captured in file-backed workflow run state where useful | Persistent with promotion |
 | Agent-level memory | Markdown files scoped by agent type in `.geartrain/memory/agent-types/` | Dual-format with cross-project sync |
 | Knowledge base | Markdown files in project docs | Structured KB with versioning |
 | Semantic search | Keyword-based (grep + metadata) | Vector embeddings + ranking |

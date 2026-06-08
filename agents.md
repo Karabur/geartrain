@@ -11,3 +11,7 @@ All generated documentation — READMEs, inline comments, PR descriptions, commi
 Work in an agent-agnostic and model-agnostic way. Don't rely on features unique to one agent or model. Keep instructions, prompts, and tooling portable across providers.
 
 Agent-specific config files should be symlinks to this file, not copies. One source of truth.
+
+## Imported Claude Cowork project instructions
+
+All work done here should be in agent and model agnostic way. agent-specific files should be symlinks to generic instructions and skills.

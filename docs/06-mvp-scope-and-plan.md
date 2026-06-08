@@ -15,6 +15,8 @@ At minimum, a developer should be able to:
 6. Have agents create a GitHub PR at the end of a successful run
 7. Inspect workflow state and history
 
+Before the full runtime exists, GearTrain should still be useful as a workspace-to-CLI bootstrap layer. A developer can start their preferred CLI agent manually, ask it to run a named GearTrain agent, and have GearTrain scripts assemble the right prompt packet from workspace config, agent definition, memory, docs, and previous run outputs.
+
 For MVP, GearTrain must ship with its own working workspace definition in the repo. That workspace is the first real product configuration: the local engine loads it by default and uses it to run GearTrain's own development workflow.
 
 The MVP should not require team accounts, user management, hosted authentication, or a shared database before the product is useful. Git is the collaboration and versioning layer. A developer clones the repo, runs the local engine, and gets the same agents, workflows, and memory files as the rest of the team.
@@ -28,16 +30,18 @@ The MVP should not require team accounts, user management, hosted authentication
 | Component | What's Included | What's Cut |
 |-----------|----------------|------------|
 | **Shared Workspace** | Repo-backed workspace definition stored alongside GearTrain's code, loaded by the local engine by default. Contains project config, agent registry, workflow registry, memory, and knowledge pointers. | Hosted workspace service, workspace invitation flow, cross-repo workspace discovery. |
-| **Agent Layer** | LangChain agents defined via YAML. Configurable system prompt, tools, LLM provider. Agent definitions stored in the workspace folder. | CLI agents, cloud agents. No agent marketplace. |
+| **Agent Layer** | LangChain agents defined via YAML. Configurable system prompt, tools, LLM provider. Agent definitions stored in the workspace folder. Manual CLI-agent prompt packets generated from the same definitions for bootstrapping. | Autonomous CLI agent control, cloud agents. No agent marketplace. |
 | **Agent Tools** | File read/write, shell exec, git operations, project search (grep/glob), GitHub API (PR creation, issues). | Browser automation, complex API integrations, custom tool definitions via no-code. |
 | **Workflow Layer** | LangGraph-based workflows defined via YAML. Sequential and branching flows, agent steps, decision nodes, human checkpoints. Workflow definitions stored in the workspace folder. | Sub-workflows, parallel execution, complex conditional logic, loop constructs. |
 | **Workflow Registry** | File-system-based registry inside the workspace directory. List, validate, run. | Internal versioning service, migration engine, UI-based editing. Git history is the MVP version history. |
 | **Team Layer** | Single repo workspace config via YAML. LLM provider/model defaults, GitHub integration, memory namespace. LLM provider connections and CLI agent credentials stay engine-scoped; each user sets up their own local credentials. | Multi-team, user roles, access control, UI-based team management. Team-level per-user LLM/CLI credential provisioning. |
-| **Engine** | Local engine, single-workflow execution. SQLite state persistence. | Cloud engine, serverless, concurrent workflows, scheduling. |
+| **Engine** | Local engine, single-workflow execution. File-backed markdown state under the workspace. | SQLite/PostgreSQL state backends, cloud engine, serverless, concurrent workflows, scheduling. |
+| **Context Assembly** | A simple prompt-packet/context builder with explicit sections for task input, agent instructions, prior outputs, selected memory, selected docs, and tool instructions. | Semantic RAG, prompt compression, dynamic tool schema selection, off-transcript helper calls. |
 | **Channels** | Local web UI (React) for workflow monitoring, HIL checkpoints, and memory inspection. Basic CLI for starting/stopping workflows. | Slack, Telegram, email channels. |
-| **Memory & Knowledge** | Git-backed markdown files with YAML frontmatter. Workspace memory, workflow memory, and agent-type memory as persistent files where useful. Agent-instance memory as in-process LangGraph state. Knowledge base as project docs. Keyword-based search. Memory read/write as agent tools. | Dual-format with vector store, semantic search, memory database, automated memory promotion, memory/KB separation in storage, dreaming, guardrail LLM classification. |
+| **Memory & Knowledge** | Git-backed markdown files with YAML frontmatter. Workspace memory, workflow memory, agent-type memory, and workflow run state are persistent files where useful. Knowledge base as project docs. Keyword-based search. Memory read/write as agent tools. | Dual-format with vector store, semantic search, memory database, automated memory promotion, memory/KB separation in storage, dreaming, guardrail LLM classification. |
 | **Integrations** | GitHub (PR creation, issue read/update). | Slack, Linear, Sentry, AWS, all others. |
 | **Guardrails** | Regex-based secret detection on memory writes. File path restrictions per agent. | LLM-based classification, cost guardrails, comprehensive PII detection. |
+| **CLI Bootstrap** | `geartrain packet <agent>` builds a prompt packet for a manual CLI-agent session. Packets and outputs are stored under `.geartrain/runs/`. A local skill can teach CLI agents how to call the packet script. | Programmatic control of interactive CLI agents, MCP/ACP runtime bridge, automatic multi-agent orchestration. |
 
 ### Explicitly Deferred
 
@@ -50,9 +54,11 @@ These are important but not required for the dogfooding milestone:
 - **Slack/Telegram/Email channels** — web UI only
 - **Agent instance memory persistence** — in-process only, discarded after run
 - **Memory vector store** — keyword search is sufficient for small memory sets
+- **Advanced context optimization** — precise semantic RAG, dynamic tool discovery, prompt compression, and off-transcript helper calls are planned, but the MVP only needs interfaces and prompt-packet structure that don't block them
 - **CI/CD workflow** — manual PR review on GitHub
 - **Product planning workflow** — manual for now
 - **User support workflow** — not needed for dogfooding
+- **Autonomous IDE/CLI agent runtime control** — planned as a fast follow for coding workflows, not part of the MVP runtime. Manual prompt-packet bootstrap is in scope.
 
 ---
 
@@ -78,10 +84,12 @@ These are important but not required for the dogfooding milestone:
 **Why:** Cloud execution requires containerization, deployment infrastructure, networking, and centralized credential handling. Local execution is simpler and sufficient for the dogfooding use case. Each developer runs an engine with their own LLM provider connection and CLI agent credentials.
 **Risk:** Can't run always-on workflows (CI/CD, support). Acceptable — those workflows are deferred anyway.
 
-### 5. Single LangChain Runtime
-**Decision:** All agents use LangChain. No CLI agent wrapping.
-**Why:** Supporting multiple agent runtimes adds abstraction complexity. LangChain is flexible enough for all MVP agent types. CLI wrapping (Claude Code, Codex) is architecturally planned but not implemented.
-**Risk:** LangChain-specific patterns may leak into the agent interface. Mitigation: clean abstract interfaces from day one.
+### 5. LangChain Runtime Plus CLI Packet Bootstrap
+**Decision:** The full runtime uses LangChain agents for MVP. Before that runtime is useful, GearTrain also supports manual CLI-agent runs by generating prompt packets from the workspace.
+**Why:** Supporting autonomous CLI wrapping adds runtime complexity. Prompt packets give immediate dogfooding value without controlling Codex, Claude Code, Cursor, or other tools directly. The same packet-builder logic can later move into the engine as context assembly.
+**Risk:** The bootstrap path can drift into a separate product. Mitigation: keep it file-based, one-shot, and explicit. It only builds context packets, saves outputs, and records run metadata.
+
+Fast follow: add user-controlled IDE/CLI agents for coding workflows. In that mode, the engine waits for an external IDE or CLI agent connection instead of spawning an agent process, exposes task context through MCP or a similar local protocol, and resumes the workflow when the external agent submits results.
 
 ### 6. Minimal Web UI
 **Decision:** The web UI shows workflow state, handles HIL checkpoints, and allows memory browsing. No drag-and-drop, no visual editor, no advanced analytics.
@@ -93,6 +101,11 @@ These are important but not required for the dogfooding milestone:
 **Why:** The dogfooding workflow needs PR creation and issue tracking. GitHub covers both. Adding Slack, Linear, etc. is incremental once the integration interface is defined.
 **Risk:** Limits the "no-code" story to GitHub-based projects. Acceptable for V1.
 
+### 8. Small-Model-Ready Interfaces
+**Decision:** The MVP uses simple retrieval and prompt assembly, but it keeps context assembly, memory retrieval, tool exposure, and model routing behind explicit interfaces.
+**Why:** GearTrain should work well with smaller models. That requires narrow steps, compact prompts, precise context, and fewer visible tools. The MVP doesn't need the final optimization stack, but it must not hardcode prompts in a way that makes those optimizations hard to add.
+**Risk:** Interfaces can become abstract before they have real usage. Mitigation: start with the prompt-packet builder and runtime context builder as the same concrete path, then generalize only when the engine needs it.
+
 ---
 
 ## Technical Stack
@@ -100,12 +113,14 @@ These are important but not required for the dogfooding milestone:
 | Component | Technology | Rationale |
 |-----------|-----------|-----------|
 | Agent runtime | LangChain (Python) | Mature agent framework, good tool ecosystem |
-| Workflow orchestration | LangGraph (Python) | Native LangChain integration, state management, checkpointing |
+| Workflow orchestration | LangGraph (Python) | Native LangChain integration with file-backed MVP state |
 | Workflow/agent definitions | YAML | Human-readable, no-code, easy to validate |
 | Configuration parsing | Pydantic | YAML → validated Python objects |
-| State persistence | SQLite | Zero-config, sufficient for local engine |
+| State persistence | Markdown files | Easy to inspect, manually edit, and evolve while the state shape is still changing |
 | Workspace storage | Git repo folder | Shared definitions, memory, and review through normal development flow |
 | Memory (MVP) | Markdown files + file-system | Simple, human-editable, git-reviewable, swappable later |
+| Context assembly | Internal builder module | One place to add prompt budgeting, precise RAG, compression, dynamic tools, and off-transcript helper calls later |
+| CLI bootstrap | Python script + Click command | Reuses workspace parsing and context assembly before the engine can run workflows |
 | Web UI | React + Vite | Fast development, component ecosystem |
 | API layer | FastAPI | Async-native, auto-generated OpenAPI docs |
 | CLI | Click (Python) | Standard Python CLI framework |
@@ -115,6 +130,24 @@ These are important but not required for the dogfooding milestone:
 ---
 
 ## Implementation Plan (2 Weeks)
+
+### Phase 0: Manual CLI-Agent Bootstrap
+
+**Objective:** Make the repo-backed workspace useful before the full engine exists.
+
+Tasks:
+- Add `.geartrain/runs/` for generated prompt packets, manual CLI-agent outputs, and simple run metadata.
+- Add a packet builder that loads workspace config, agent definition, relevant docs, memory files, previous run outputs, and the current task.
+- Keep packet sections explicit: task, agent role, instructions, selected context, selected tools, output contract, and save location.
+- Implement CLI commands:
+  - `geartrain packet planner --task "<task>"` — writes a planner prompt packet
+  - `geartrain packet coder --run <run-id> --task <task-id>` — writes a coder packet from planner output
+  - `geartrain packet reviewer --run <run-id>` — writes a review packet from the saved run context
+- Save generated packets under `.geartrain/runs/<run-id>/`.
+- Add a small skill or agent instruction file that tells manual CLI agents how to call the packet command.
+- Keep the script as product logic, not only agent instructions, so the engine can reuse it later.
+
+Deliverable: A developer can start a CLI agent manually and ask it to use GearTrain's planner or coder packet for one run.
 
 ### Week 1: Foundation
 
@@ -132,6 +165,8 @@ Tasks:
   - `.geartrain/memory/workspace/` — project/workspace operational memory
   - `.geartrain/memory/agent-types/` — agent-type memory
   - `.geartrain/memory/workflows/` — reusable workflow memory and run summaries
+  - `.geartrain/runs/` — prompt packets, manual CLI-agent outputs, run metadata
+  - `.geartrain/state/` — file-backed workflow state for the local engine
 - Define Pydantic models for all YAML schemas:
   - `AgentDefinition` — name, type, LLM config, system prompt, tools, memory config
   - `WorkflowDefinition` — name, nodes, transitions, triggers, channels
@@ -155,6 +190,7 @@ Tasks:
   - `git_operations` — git status, diff, commit, branch, push
   - `project_search` — grep/glob across project files
 - Implement system prompt template resolution (`${variable}` interpolation)
+- Implement a shared context builder used by both runtime agents and `geartrain packet`
 - Implement LLM provider resolution: agents use team provider/model defaults, while the engine loads each user's local OpenAI/Anthropic connection
 - Write a test: define a coder agent in YAML, instantiate it, run a simple coding task
 - Implement basic agent execution logging
@@ -173,7 +209,7 @@ Tasks:
   - `update()` — modifies an existing entry
   - `list()` — lists entries by scope, system, category, tags
   - `forget()` — soft-deletes an entry
-- Workflow run state and agent-instance memory: handled by LangGraph state (in-process, no persistence yet)
+- Workflow run state and agent-instance context: stored as markdown files under `.geartrain/state/` where useful
 - Implement memory as LangChain tools (`memory_read`, `memory_write`, `kb_read`, `kb_write`)
 - Implement regex-based guardrail for memory writes (reject secrets, credentials)
 - Scope isolation: workspace memory, workflow memory, agent-type memory, and knowledge base in separate directories
@@ -196,8 +232,8 @@ Tasks:
   - `HumanCheckpointNode` — pauses workflow, emits a checkpoint event, waits for response
   - `IntegrationNode` — calls an external service (GitHub for MVP)
 - Implement state management:
-  - Workflow state stored in SQLite via LangGraph checkpointing
-  - State includes: current node, agent outputs, human responses, memory references
+  - Workflow state stored as markdown files under `.geartrain/state/`
+  - State includes: current node, plain text agent outputs, human responses, memory references
 - Implement variable resolution across workflow context
 - Implement transition logic (output-based routing)
 - Write tests: run a simple 3-node workflow (agent → decision → agent)
@@ -217,6 +253,7 @@ Tasks:
 - Implement CLI:
   - `geartrain init` — scaffold `.geartrain/` in the current repo
   - `geartrain validate <file>` — validate any YAML definition
+  - `geartrain packet <agent>` — generate a prompt packet for a manual CLI-agent run
   - `geartrain run <workflow> [--task <description>]` — start a workflow run from the default workspace
   - `geartrain status` — show running workflows and their state
   - `geartrain stop <run-id>` — stop a workflow run
@@ -285,10 +322,11 @@ Deliverable: Team members can set up and use GearTrain independently.
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| LangGraph checkpointing doesn't support the workflow patterns needed | Medium | High | Prototype the workflow engine first (day 6); fall back to custom state machine if needed |
+| File-backed workflow state doesn't support the workflow patterns needed | Medium | High | Prototype the workflow engine first (day 6); fall back to a small custom state index or SQLite if markdown files become limiting |
 | Agent quality is too low to produce usable code | High | Medium | Start with small, well-scoped tasks; focus on the coordination value, not agent autonomy |
 | YAML schema becomes unwieldy | Medium | Low | Keep schemas flat and well-documented; visual editor is the real solution |
 | GitHub integration is flaky | Low | Medium | Robust error handling and retry logic; human can always complete GitHub steps manually |
+| CLI bootstrap becomes a separate workflow engine | Medium | Medium | Limit it to packet generation, saved outputs, and simple run metadata |
 | 2 weeks is not enough | High | High | Cut UI polish, cut reviewer agent, cut QA agent. Minimum viable: team-lead + coder + human checkpoints + GitHub PR |
 
 ---
@@ -297,12 +335,13 @@ Deliverable: Team members can set up and use GearTrain independently.
 
 If the 2-week timeline is too aggressive, this is the bare minimum to demonstrate the concept:
 
-1. **One agent** (coder) configurable via YAML
-2. **One workflow** (plan → code → human review → PR) in LangGraph
-3. **Repo workspace** (`.geartrain/agents`, `.geartrain/workflows`, `.geartrain/memory`)
-4. **Memory** (markdown files, read-only by agents — human writes memory manually)
-5. **CLI only** (no web UI — human checkpoints via terminal prompts)
-6. **GitHub PR creation** (the one integration)
+1. **Repo workspace** (`.geartrain/agents`, `.geartrain/workflows`, `.geartrain/memory`, `.geartrain/runs`)
+2. **Prompt packet builder** for planner, coder, and reviewer manual CLI-agent runs
+3. **One agent** (coder) configurable via YAML
+4. **One workflow** (plan → code → human review → PR) in LangGraph
+5. **Memory** (markdown files, read-only by agents — human writes memory manually)
+6. **CLI only** (no web UI — human checkpoints via terminal prompts)
+7. **GitHub PR creation** (the one integration)
 
 This could be achieved in ~5 days and would prove the architecture works, even if it's not comfortable to use.
 

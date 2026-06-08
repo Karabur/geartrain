@@ -33,6 +33,8 @@ The architecture isn't just an organizational choice — it produces concrete ad
 
 **Model routing and cost control.** Different agents can use different models based on their role, and the same agent can switch models for different task types. A planning step can use a stronger model, while formatting, classification, or simple tool coordination can use a cheaper one. Teams control quality and cost through configuration instead of rewriting agents.
 
+**Smaller-model readiness.** GearTrain should be designed from day one so smaller and cheaper models can still produce good work. That means narrow workflow steps, scoped prompts, explicit output contracts, precise retrieval, dynamic tool exposure, off-transcript planning and routing calls, and context budgets that prevent every agent from carrying the whole project in its prompt. Not all of this has to ship in the MVP, but the runtime interfaces should make it easy to add.
+
 **Observability and evals for agent behavior.** Future GearTrain workflows should expose enough telemetry to understand and improve agent behavior over time: token usage, tool usage, repeated invocations, failed LLM calls, failed tool calls, retries, latency, cost, and outcome quality. Evals turn that telemetry into controlled model upgrades, model routing decisions, prompt changes, and drift detection instead of guessing whether an agent still behaves correctly.
 
 **Sane integration defaults.** GearTrain can ship with a curated set of MCP servers so agents have useful, predictable tool access from the start. Future ACP support should let users connect the runtime engine to their IDE of choice, which matters most for development workflows where the agent needs to work close to the code, terminal, and editor.
@@ -68,6 +70,9 @@ Users interact with running workflows through pluggable channels: local web UI, 
 
 ### 10. Self-Improving Agents
 Agents learn from experience. Each agent instance accumulates operational memory — patterns that worked, mistakes to avoid, environment-specific knowledge — within guardrails that prevent storing sensitive data.
+
+### 11. Context Is a Runtime Resource
+Prompt space is managed like compute or tool access. Workflows, agents, tools, memory, and knowledge retrieval should all declare enough structure for the engine to assemble a small, relevant context instead of dumping broad project state into every model call.
 
 ## Target Users
 

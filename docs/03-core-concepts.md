@@ -12,6 +12,10 @@ A category of agent runtime. The primary type is `langchain` (configured via YAM
 
 The `sdk` type covers agents built on vendor-managed agentic frameworks that own their own execution loop. GearTrain provides the running environment (tools, memory, context) but delegates the agent loop to the SDK. How SDK-native capabilities integrate with GearTrain's tool system and memory is [to be defined].
 
+User-controlled IDE/CLI agents are a separate future mode from autonomous CLI wrapping. In that mode, the engine waits for an external IDE or CLI agent connection, exposes task context through MCP or a similar local protocol, and resumes the workflow when the external agent returns results. See [07-design-notes.md](07-design-notes.md#user-controlled-idecli-agents).
+
+Manual CLI-agent bootstrap is a limited earlier mode. GearTrain builds prompt packets from workspace definitions, memory, docs, and prior outputs. The developer runs the CLI agent manually and decides how to use the packet. See [07-design-notes.md](07-design-notes.md#manual-cli-agent-bootstrap).
+
 ### Agent Registry
 A team-scoped catalog of all agent definitions. The registry is the single source of truth for what agents are available. Agents are referenced by name in workflow definitions.
 
@@ -37,6 +41,13 @@ For MVP, this is implemented as a single git-backed workspace folder inside the 
 A repo-local project configuration bundle. It contains the agent registry, workflow registry, memory folders, knowledge pointers, and integration references that the local engine should load.
 
 The default MVP workspace lives at `.geartrain/` and is versioned with the project code. GearTrain's own repo should include a working workspace so GearTrain can develop itself from day one.
+
+### Agent Packet
+A generated prompt/context file for a single manual agent run. The packet is built from the workspace config, agent definition, task input, relevant memory, docs, and previous run outputs.
+
+Agent packets are a bootstrap mechanism, not a full runtime. They let a developer use GearTrain context inside an existing CLI agent session before the engine can run the workflow directly.
+
+MVP packets are stored under `.geartrain/runs/<run-id>/` next to the outputs produced from them.
 
 ### Engine
 The runtime environment that executes workflows. An engine runs on a specific host (local workstation or cloud server), manages workflow state, handles concurrency, and exposes channels for user interaction.
@@ -97,6 +108,26 @@ Rules that define what happens when a workflow step produces a bad output, an ag
 
 ### Model Routing
 Configuration that chooses which model handles a given agent, workflow node, or action. Routing can be coarse-grained (the reviewer agent uses one model, the classifier uses another) or fine-grained (the same agent uses a stronger model for planning and a cheaper model for summarization). The engine resolves routing at runtime using team and engine configuration.
+
+### Context Assembly
+The engine process that builds the prompt for an agent call. Context assembly combines system instructions, task input, workflow state, prior outputs, memory, knowledge base results, and tool instructions within a configured context budget.
+
+Context assembly is a runtime concern, not a pile of static prompt text. It lets GearTrain improve prompts, compression, retrieval, and routing without rewriting every agent definition.
+
+### Dynamic Tool Exposure
+A runtime pattern where the engine exposes only the tools relevant to the current step. An agent can declare tool categories or capabilities, and the engine resolves those into concrete tool schemas at call time.
+
+This keeps prompts smaller and reduces wrong tool choices, especially when smaller models run with a large tool registry behind them.
+
+### Precise RAG
+Retrieval-augmented generation with tight scope and ranking rules. Precise RAG uses metadata filters, memory scope rules, top-k limits, relevance thresholds, source references, and query rewriting where useful instead of injecting broad search results into the prompt.
+
+Precise RAG is the path from MVP keyword search to semantic retrieval without changing how agents ask for memory or knowledge.
+
+### Off-Transcript Call
+An LLM call whose result is used by the runtime but whose full input/output transcript is not appended to the main agent history. Common uses include route selection, tool selection, query generation, summarization, critique, and output repair.
+
+Off-transcript calls help preserve the main context window for the task itself.
 
 ### Observability
 Structured visibility into what agents and workflows are doing. Observability covers token usage, cost, latency, tool usage, retries, repeated invocations, failed LLM calls, failed tool calls, validation failures, workflow outcomes, and human escalations.
@@ -160,10 +191,16 @@ Workspace (MVP)
 ├── .geartrain/workspace.yaml
 ├── .geartrain/agents/
 ├── .geartrain/workflows/
-└── .geartrain/memory/
-    ├── workspace/
-    ├── workflows/
-    └── agent-types/
+├── .geartrain/memory/
+│   ├── workspace/
+│   ├── workflows/
+│   └── agent-types/
+└── .geartrain/runs/
+    └── <run-id>/
+        ├── 01-planner-packet.md
+        ├── 01-planner-output.md
+        ├── 02-coder-packet.md
+        └── 02-coder-output.md
 
 Engine
 ├── LLM Provider Connections (per-user API keys/accounts)

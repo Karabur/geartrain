@@ -42,6 +42,8 @@ Individual AI units that perform specific tasks. Each agent has a defined role, 
 | SDK Agent | Vendor-specific agentic SDK (Anthropic Agent SDK, OpenAI Agents SDK, etc.) | SDK-managed | SDK config + YAML bridge | Deferred |
 | Cloud Agent | Remote API | Provider-managed | API credentials | Deferred |
 
+Manual CLI-agent bootstrap is in scope before full CLI-agent runtime support. In that mode GearTrain does not launch or control the CLI agent. It builds a prompt packet from the workspace and stores the packet/output under `.geartrain/runs/`. A developer starts the CLI agent manually and asks it to use the packet.
+
 **SDK Agents** are built on vendor-specific agentic SDKs — Anthropic Agent SDK, OpenAI Agents SDK, and similar frameworks that provide their own tool-use loops, context management, and orchestration primitives. Unlike LangChain agents (which GearTrain fully controls) or CLI agents (which GearTrain wraps), SDK agents bring their own execution model. GearTrain provides the environment — tools, memory, context — but the SDK handles the agent loop internally.
 
 Open questions [to be defined]:
@@ -80,6 +82,16 @@ tools:
   - git_operations
   - project_search
 
+context:
+  budget_tokens: 12000
+  retrieval:
+    memory_top_k: 6
+    knowledge_top_k: 8
+    require_source_refs: true
+  tools:
+    mode: dynamic
+    categories: [repo, shell, git]
+
 memory:
   agent_level: coding_patterns     # shared across all coder instances, cross-project
   instance_memory: true            # per-instance operational context
@@ -95,9 +107,9 @@ runtime:
   tool_retries:
     max_attempts: 2
     retry_on: [timeout, transient_error]
-  output_validation:
-    schema: code_change_result
-    on_invalid: repair
+  output:
+    format: plain_text
+    # Output structure is controlled by the system prompt and action instructions.
   on_failure: escalate
 ```
 
@@ -170,10 +182,9 @@ graph:
       inputs:
         task: ${trigger.payload}
         project_context: ${memory.project.current_state}
-      outputs: [plan, clarification_needed]
+      output_key: plan
       transitions:
-        clarification_needed: human_review
-        plan: human_review
+        default: human_review
 
     human_review:
       type: human_checkpoint
@@ -189,44 +200,41 @@ graph:
       agent: coder
       action: write_code
       inputs:
-        plan: ${intake.outputs.plan}
+        plan: ${intake.output}
         codebase: ${project.repo}
-      outputs: [changes, blocked]
+      output_key: changes
       transitions:
-        changes: test
-        blocked: human_review
+        default: test
 
     test:
       agent: qa
       action: run_tests
       inputs:
-        changes: ${implement.outputs.changes}
-      outputs: [pass, fail]
+        changes: ${implement.output}
+      output_key: test_report
       transitions:
-        pass: review
-        fail: implement
+        default: review
 
     review:
       agent: reviewer
       action: review_changes
       inputs:
-        changes: ${implement.outputs.changes}
+        changes: ${implement.output}
         standards: ${memory.project.coding_standards}
-      outputs: [approved, changes_requested]
+      output_key: review
       transitions:
-        approved: create_pr
-        changes_requested: implement
+        default: create_pr
 
     create_pr:
       agent: team-lead
       action: create_pull_request
       tools: [github]
       inputs:
-        changes: ${implement.outputs.changes}
-        plan: ${intake.outputs.plan}
-      outputs: [pr_url]
+        changes: ${implement.output}
+        plan: ${intake.output}
+      output_key: pr_url
       transitions:
-        pr_url: update_tracker
+        default: update_tracker
 
     update_tracker:
       type: integration
@@ -234,7 +242,7 @@ graph:
       action: update_status
       inputs:
         status: "in_review"
-        pr_url: ${create_pr.outputs.pr_url}
+        pr_url: ${create_pr.output}
       transitions:
         done: end
 ```
@@ -297,6 +305,8 @@ agents:
   registry: ./.geartrain/agents/
 workflows:
   registry: ./.geartrain/workflows/
+runs:
+  root: ./.geartrain/runs/
 ```
 
 ### Team Isolation
@@ -321,12 +331,14 @@ Runtime environment that executes workflows. Manages state, scheduling, concurre
 | Serverless Engine | Cloud functions | Event-driven, stateless workflows | Deferred |
 
 ### Engine Capabilities
-- **State Management:** Persists workflow state across interruptions (LangGraph checkpointing)
+- **State Management:** Persists workflow state across interruptions. MVP state is file-backed markdown under the workspace; SQLite and stronger checkpointing can come later.
 - **Concurrency:** Runs multiple workflow instances; manages agent resource contention
 - **Scheduling:** Cron-like triggers for periodic workflows
 - **Deterministic Tool Control:** Applies configured tool retries, timeouts, fallback paths, and escalation rules outside the LLM loop
 - **Failure Handling:** Routes bad outputs, agent mistakes, external API failures, repeated LLM call failures, and invalid tool results through configured repair, retry, fallback, or human-escalation paths
 - **Model Routing:** Resolves per-agent and per-action model choices so workflows can spend stronger models where they matter and cheaper models where they are enough
+- **Context Assembly:** Builds compact per-call prompts from workflow state, selected memory, selected knowledge, prior outputs, and agent instructions
+- **Dynamic Tool Exposure:** Exposes only the tool schemas relevant to the current step, while keeping larger tool catalogs available through registry lookup
 - **Health Monitoring:** Tracks active workflows, agent utilization, error rates
 - **Observability:** Captures token usage, cost, latency, tool usage, repeated invocations, retries, failed LLM calls, failed tool calls, and workflow outcomes
 - **Evals:** Runs workflow and agent behavior checks to detect drift, compare models, validate prompt changes, and support controlled model upgrades
@@ -387,8 +399,8 @@ resources:
   max_concurrent_agents: 5
 
 state:
-  backend: sqlite           # MVP: SQLite; future: PostgreSQL
-  path: ./data/engine.db
+  backend: files            # MVP: markdown files; future: SQLite/PostgreSQL
+  path: ./.geartrain/state
 
 logging:
   level: info
@@ -412,6 +424,25 @@ evals:
     - workflow_regression
     - model_upgrade
 ```
+
+---
+
+## Context Assembly & Smaller-Model Readiness
+
+GearTrain should not assume every workflow step runs on a frontier model with a huge context window. The architecture should make smaller models effective by giving them less irrelevant work to do.
+
+The engine owns context assembly. Agents and workflows declare what they need; the engine builds the smallest useful prompt for each call. That keeps context policy outside one-off agent prompts and lets teams improve retrieval, compression, routing, and tool selection without rewriting every agent.
+
+Core requirements:
+- **Prompt budgets:** Agents, workflow nodes, and model routes can define target context budgets.
+- **Scoped prompt sections:** System instructions, task input, workflow state, prior outputs, memory, knowledge, and tool instructions remain separate until final prompt assembly.
+- **Precise retrieval:** Memory and knowledge retrieval use metadata filters, scope rules, query rewriting where useful, top-k limits, source references, and relevance thresholds.
+- **Dynamic tools:** Agents can declare tool categories or capabilities. The engine resolves the concrete schemas at call time and avoids injecting every available tool.
+- **Off-transcript calls:** Planning, classification, retrieval query generation, tool selection, and output repair can run as helper calls whose intermediate transcripts don't enter the main agent context.
+- **Output contracts:** Workflow steps define expected output shape, validation, repair, and fallback behavior so smaller models get explicit targets.
+- **Evals by route:** Evals compare prompts, retrieval rules, tool-selection rules, and model routes so teams can decide where smaller models are safe.
+
+MVP can keep the implementation simple: hand-assembled prompt packets, keyword search, explicit tool lists, and plain text outputs. The important constraint is that these are behind interfaces that can grow into precise RAG, dynamic tool discovery, prompt compression, and off-transcript helper calls later.
 
 ---
 
