@@ -67,44 +67,24 @@ For MVP, only workflow-transition triggering is implemented. Event and schedule 
 
 ---
 
-## Manual CLI-Agent Bootstrap
+## Agent as an Abstraction
 
-GearTrain should become useful before it can run the full workflow engine. The first bootstrap mode is manual: the developer starts their normal CLI agent session, then asks that agent to use GearTrain to prepare a named agent run.
+An agent is an abstraction, not a single implementation. It takes a task plus assembled context and returns a plain text result. From the workflow's point of view every agent looks the same: a node you invoke and read output from. The workflow never branches on what kind of agent it is.
 
-In this mode GearTrain does not control the CLI agent. It builds a prompt packet from the repo-backed workspace and saves it under `.geartrain/runs/`. The developer or current CLI agent decides how to use that packet.
+Implementations differ in two ways — how they produce the result, and what configuration they need. The `type` field on an agent definition selects the implementation and decides which config block applies. MVP ships two types:
 
-A typical flow:
+- **`langchain`** — GearTrain owns the agent loop. The definition carries an `llm` block (model hint, temperature, per-action routes), a `tools` list drawn from GearTrain's registry, and context/memory config. The model is provider-agnostic, so this is also where open-source local LLMs plug in (Ollama, or any OpenAI-compatible endpoint).
+- **`cli`** — GearTrain shells out to an external CLI agent in headless one-shot mode (default `codex exec`). The CLI owns its own loop, tools, and sandbox. The definition carries a `cli` block (command, args, timeout, working folder, sandbox/approval mode, credential reference) instead of `llm`/`tools`. GearTrain front-loads everything into the prompt; it does not inject GearTrain tools mid-run.
 
-1. The developer starts Codex, Claude Code, Cursor, or another CLI/IDE agent as usual.
-2. The developer says: "Run planner agent for feature X."
-3. The CLI agent calls `geartrain packet planner --task "feature X"` or follows a local skill that wraps the same command.
-4. GearTrain reads `.geartrain/workspace.yaml`, the planner agent definition, relevant docs, memory files, and prior run outputs.
-5. GearTrain writes a prompt packet such as `.geartrain/runs/2026-05-28-feature-x/01-planner-packet.md`.
-6. The CLI agent uses that packet to produce a planner output and saves it next to the packet.
-7. The developer can then ask: "Run coder with task 1." GearTrain builds a coder packet from the planner output, workspace context, and memory.
+The two share one interface: `run(task, context) -> str`. In LangGraph terms both become a node — a `cli` agent is a function wrapped as a `RunnableLambda`, a `langchain` agent is built with `create_agent` (itself a compiled graph). The workflow only ever calls `.invoke()`.
 
-The useful primitive is:
+Anchor the GearTrain agent interface at the node/Runnable level, not the model level. LangChain's own agnosticism lives at the model layer (`BaseChatModel`, swap one LLM for another), but that abstraction assumes a chat-completion model and can't hold a CLI agent or a future non-LLM agent. The node level is the altitude that absorbs all of them — `langchain`, `cli`, and later `sdk` or `cloud` — without the workflow definition changing.
 
-```text
-workspace + agent definition + task + memory + prior outputs -> prompt packet
-```
+Config divergence between types is expected and fine. Validation dispatches on `type`: a `langchain` agent requires `llm` and `tools`; a `cli` agent requires `cli`. A shared core (`name`, `description`, `system_prompt`, memory scopes consumed as prompt context) stays common across both.
 
-The packet should include:
-- Agent role and operating rules
-- Task input
-- Workspace summary
-- Relevant docs and memory references
-- Prior run outputs, if any
-- Expected output format
-- Save location for the result
+### Why `cli` is in the MVP
 
-The script is the source of truth. A skill can teach CLI agents how to call the script, but the packet builder itself should live in GearTrain code so the engine can reuse it later.
-
-Scope boundaries:
-- In scope: prompt-packet generation, saved outputs, simple run IDs, previous-output references
-- Out of scope: controlling interactive CLI sessions, automatic multi-agent orchestration, MCP/ACP runtime bridge, background execution
-
-This path gives immediate dogfooding value while still building product logic. The packet builder becomes the future engine's context assembly layer.
+The `cli` type is the fastest path to a running loop — no agent-runtime code, just a subprocess that returns text. It also unlocks subscription-based execution: `codex exec` reuses the user's saved CLI auth, so headless runs draw on a ChatGPT subscription instead of per-token API billing. That's a real cost lever for heavy dogfooding, with two caveats worth recording. OpenAI recommends an API key (not subscription auth) for unattended/CI runs, so the subscription path is available but against their guidance. And on the Anthropic side, headless `claude -p`/Agent SDK usage now bills at API rates from a separate credit pool rather than the interactive subscription, and keeping subscription auth alive headless violates the ToS — so the subscription arbitrage currently applies to Codex, not Claude Code. Treat it as a near-term cost lever, not an architectural assumption; the agnostic interface means a `cli` node can be swapped for an API-billed `langchain` node without touching the workflow.
 
 ---
 
@@ -112,9 +92,9 @@ This path gives immediate dogfooding value while still building product logic. T
 
 GearTrain should support coding workflows where the implementation step happens inside the user's preferred IDE or CLI agent instead of a GearTrain-started process. This is different from wrapping a CLI agent as an autonomous runtime. The user remains in the loop, drives the IDE or CLI session, and sends completed work back to the engine when ready.
 
-The manual CLI-agent bootstrap is the earlier, simpler version of this idea. It has no live protocol and no engine-owned wait state. It only builds context packets and records outputs. The full user-controlled mode below adds a runtime connection, workflow state, validation, and resume behavior.
+This is distinct from the MVP `cli` agent type. The MVP `cli` agent is headless and one-shot: GearTrain spawns `codex exec`, waits, and reads the result. The user-controlled mode below is interactive and long-lived: the engine doesn't spawn anything, it waits on an external IDE or CLI session the developer drives, then resumes when results come back. It adds a runtime connection, an engine-owned wait state, validation, and resume behavior on top of the one-shot model.
 
-The workflow can model this as an `ide`, `cli`, or `user` agent type. When execution reaches that node, the engine doesn't spawn an agent process. It marks the workflow as waiting on an external agent connection, exposes the task context, and waits for a completion signal.
+The workflow can model this as an `ide` or `external` agent type (separate from the headless `cli` type). When execution reaches that node, the engine doesn't spawn an agent process. It marks the workflow as waiting on an external agent connection, exposes the task context, and waits for a completion signal.
 
 The external agent should get context through a standard connection, most likely an MCP server exposed by the engine. A typical flow:
 

@@ -8,13 +8,16 @@ A self-contained AI unit configured to perform a specific role. An agent has a s
 **Key distinction:** An agent *definition* is a reusable template (stored in the registry). An agent *instance* is a running copy of that definition within a specific workflow execution, with its own context and instance memory.
 
 ### Agent Type
-A category of agent runtime. The primary type is `langchain` (configured via YAML, runs on LangChain). Future types include `cli` (wraps a local CLI tool like Claude Code), `sdk` (built on a vendor-specific agentic SDK like Anthropic Agent SDK or OpenAI Agents SDK), and `cloud` (calls a remote agent API). Agent type determines how the agent is instantiated and what infrastructure it needs.
+The implementation behind an agent. Agent is an abstraction — the same to a workflow regardless of type — and the `type` field selects how it runs and which config fields apply (see [07-design-notes.md](07-design-notes.md#agent-as-an-abstraction)). MVP ships two types:
+
+- `langchain` — runs inside GearTrain on LangChain/LangGraph. Config carries `llm` and `tools` blocks. Local and open-source LLMs plug in here through the provider-agnostic model layer.
+- `cli` — a headless external CLI agent GearTrain runs one-shot (default `codex exec`). Config carries a `cli` block (command, timeout, sandbox). The CLI owns its own loop and tools; GearTrain front-loads context into the prompt.
+
+Future types include `sdk` (built on a vendor-specific agentic SDK like Anthropic Agent SDK or OpenAI Agents SDK) and `cloud` (calls a remote agent API).
 
 The `sdk` type covers agents built on vendor-managed agentic frameworks that own their own execution loop. GearTrain provides the running environment (tools, memory, context) but delegates the agent loop to the SDK. How SDK-native capabilities integrate with GearTrain's tool system and memory is [to be defined].
 
-User-controlled IDE/CLI agents are a separate future mode from autonomous CLI wrapping. In that mode, the engine waits for an external IDE or CLI agent connection, exposes task context through MCP or a similar local protocol, and resumes the workflow when the external agent returns results. See [07-design-notes.md](07-design-notes.md#user-controlled-idecli-agents).
-
-Manual CLI-agent bootstrap is a limited earlier mode. GearTrain builds prompt packets from workspace definitions, memory, docs, and prior outputs. The developer runs the CLI agent manually and decides how to use the packet. See [07-design-notes.md](07-design-notes.md#manual-cli-agent-bootstrap).
+User-controlled IDE/CLI agents are a separate future mode from the headless `cli` type. In that mode, the engine waits for an external IDE or CLI agent connection, exposes task context through MCP or a similar local protocol, and resumes the workflow when the external agent returns results. See [07-design-notes.md](07-design-notes.md#user-controlled-idecli-agents).
 
 ### Agent Registry
 A team-scoped catalog of all agent definitions. The registry is the single source of truth for what agents are available. Agents are referenced by name in workflow definitions.
@@ -41,13 +44,6 @@ For MVP, this is implemented as a single git-backed workspace folder inside the 
 A repo-local project configuration bundle. It contains the agent registry, workflow registry, memory folders, knowledge pointers, and integration references that the local engine should load.
 
 The default MVP workspace lives at `.geartrain/` and is versioned with the project code. GearTrain's own repo should include a working workspace so GearTrain can develop itself from day one.
-
-### Agent Packet
-A generated prompt/context file for a single manual agent run. The packet is built from the workspace config, agent definition, task input, relevant memory, docs, and previous run outputs.
-
-Agent packets are a bootstrap mechanism, not a full runtime. They let a developer use GearTrain context inside an existing CLI agent session before the engine can run the workflow directly.
-
-MVP packets are stored under `.geartrain/runs/<run-id>/` next to the outputs produced from them.
 
 ### Engine
 The runtime environment that executes workflows. An engine runs on a specific host (local workstation or cloud server), manages workflow state, handles concurrency, and exposes channels for user interaction.
@@ -195,12 +191,11 @@ Workspace (MVP)
 │   ├── workspace/
 │   ├── workflows/
 │   └── agent-types/
-└── .geartrain/runs/
-    └── <run-id>/
-        ├── 01-planner-packet.md
-        ├── 01-planner-output.md
-        ├── 02-coder-packet.md
-        └── 02-coder-output.md
+└── .geartrain/state/
+    └── runs/
+        └── <run-id>/
+            ├── run.md
+            └── <NN>-<node>.md   # per-node plain text output
 
 Engine
 ├── LLM Provider Connections (per-user API keys/accounts)

@@ -1,15 +1,17 @@
 # First Milestone Implementation Spec
 
-Build the first executable GearTrain loop around a local engine and a `codex` agent type.
+Build the first executable GearTrain loop around a local engine and the `cli` agent type, with Codex as its first command.
 
 The milestone should prove that GearTrain can load a repo-local workspace, validate it on engine startup, run named agents through Codex CLI non-interactive execution, and run one simple workflow iteration against a task in `work/`.
+
+This slice implements the `cli` agent type only — the headless, one-shot runner described in [../docs/07-design-notes.md](../docs/07-design-notes.md#agent-as-an-abstraction). `codex exec` is its default command. The `langchain` agent type is the next slice; it implements the same `run(task, context) -> str` interface so the workflow doesn't change when it lands.
 
 ## Goals
 
 1. Create the Python project backbone.
 2. Create the root `work/` implementation driver with task-state folders.
 3. Create the `.geartrain/` workspace with config, agents, workflow, and state folders.
-4. Add two `codex` agents: `coder` and `lead`.
+4. Add two `cli` agents (default command `codex exec`): `coder` and `lead`.
 5. Start a local engine that automatically loads `.geartrain/workspace.yaml`.
 6. Validate workspace, agent, and workflow configuration on engine startup.
 7. Expose a small HTTP API for direct agent calls, workflow start, engine status, and engine shutdown.
@@ -25,8 +27,8 @@ The milestone should prove that GearTrain can load a repo-local workspace, valid
 
 ## Non-Goals
 
-- No manual prompt-packet bootstrap.
-- No LangChain agent runtime.
+- No manual prompt-packet bootstrap (removed from the plan entirely).
+- No `langchain` agent type in this slice — it's the next slice, built against the same agent interface.
 - No web UI.
 - No memory implementation beyond a placeholder memory manager.
 - No GitHub integration.
@@ -132,27 +134,28 @@ The workspace default work folder is used when a workflow does not set its own `
 - lead agent name
 - log path
 
-## Agent Type: codex
+## Agent Type: cli
 
-The first runnable agent type is `codex`.
+The first runnable agent type is `cli` — a headless external CLI agent. Codex is its first command.
 
-When the engine runs a `codex` agent, it calls Codex CLI in non-interactive mode:
+When the engine runs a `cli` agent, it calls the configured command in non-interactive mode:
 
 ```text
 codex exec <prompt>
 ```
 
-The exact command should be configurable per agent or engine, with `codex exec` as the default.
+The command is configurable per agent or engine, with `codex exec` as the default.
 
 Agent config should include:
 
 - `name`
-- `type: codex`
+- `type: cli`
 - `description`
 - `system_prompt`
-- optional `work_folder`
-- optional `timeout_seconds`
-- optional `allowed_tools`
+- `cli.command` (default `codex exec`)
+- optional `cli.work_folder`
+- optional `cli.timeout_seconds`
+- optional `cli.sandbox` (passthrough to the CLI's own sandbox/approval mode)
 
 The engine builds the final prompt from:
 
@@ -332,9 +335,9 @@ Validate:
 - registry paths exist.
 - workspace default `work_folder` exists when configured.
 - workflow `work_folder` exists when configured.
-- every agent config has `type: codex`.
-- every `codex` agent has a system prompt.
-- `codex exec` command is configured.
+- every agent config has `type: cli`.
+- every `cli` agent has a system prompt.
+- the `cli` command is configured (default `codex exec`).
 - every workflow references existing agents.
 - `geartrain-dev` workflow has a work folder or can use the workspace default.
 - state and log directories are writable.

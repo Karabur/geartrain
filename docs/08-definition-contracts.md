@@ -171,6 +171,10 @@ Deferred:
 
 An agent definition describes a reusable role. It does not define workflow routing.
 
+The `type` field selects the implementation and decides which config block is required. MVP supports two types, `langchain` and `cli`. They share a core (`schema_version`, `name`, `description`, `system_prompt`, `memory`) and diverge on the rest: a `langchain` agent carries `llm` and `tools`; a `cli` agent carries a `cli` block and no `tools` (the external CLI brings its own).
+
+### `langchain` agent
+
 ```yaml
 schema_version: 1
 name: coder
@@ -232,7 +236,7 @@ runtime:
 
 Validation rules:
 
-- `type` must be `langchain` for the first MVP runtime.
+- `type` must be `langchain` or `cli`. The rules below apply when `type: langchain`.
 - `llm.model_hint` must exist in workspace `llm.model_hints` or be a concrete model name.
 - Every tool must exist in the engine tool registry.
 - `context.budget_tokens`, when set, must be a positive integer.
@@ -243,15 +247,54 @@ Validation rules:
 - `system_prompt` may reference workspace, engine, memory, and workflow context variables, but every static reference must resolve.
 - Guardrail path patterns are relative to the workspace repo root.
 
+### `cli` agent
+
+A `cli` agent delegates the loop to an external CLI tool run headless and one-shot. GearTrain assembles the prompt and reads plain text back; it does not expose GearTrain tools to the CLI.
+
+```yaml
+schema_version: 1
+name: coder
+description: "Implements approved code changes via a headless CLI agent"
+type: cli
+
+cli:
+  command: codex exec          # default; configurable per agent or engine
+  # extra_args: ["--model", "gpt-5.5"]
+  timeout_seconds: 900
+  work_folder: work            # optional; falls back to workflow/workspace default
+  sandbox: workspace-write     # passthrough to the CLI's own sandbox/approval mode
+  credential: codex.default    # optional engine-scoped CLI credential reference
+
+system_prompt: |
+  You are a senior software engineer working on ${workspace.project.name}.
+  Follow the workspace memory and project documentation provided in the prompt.
+
+memory:
+  read:                        # injected into the prompt as text, not as live tools
+    - workspace
+    - workflow
+```
+
+Validation rules:
+
+- `cli.command` is required and must be a non-empty string. Default is `codex exec`.
+- `cli.timeout_seconds`, when set, must be a positive integer.
+- `cli.work_folder`, when set, must resolve inside the repo; otherwise the workflow or workspace default applies.
+- `cli.credential`, when set, must name a credential declared in engine config, not a raw secret.
+- A `cli` agent must not declare `llm` or `tools`. The external CLI owns the model and tools.
+- `memory.read` scopes are allowed (injected as prompt context). `memory.write` is not supported for `cli` agents in MVP — the CLI can't call GearTrain memory tools mid-run.
+- `system_prompt` may reference workspace, engine, memory, and workflow context variables, but every static reference must resolve.
+
 Deferred:
 
-- CLI agents.
 - SDK agents.
 - Cloud agents.
+- User-controlled interactive IDE/CLI agents (the headless `cli` type is in MVP).
 - Agent marketplaces.
 - Agent inheritance and composition.
 - Dynamic tool schema selection.
 - Semantic retrieval and prompt compression.
+- `memory.write` from `cli` agents.
 
 ## Workflow Definition
 
@@ -467,4 +510,4 @@ The first implementation should prove this contract with no LLM calls:
 5. Persist workflow state as markdown files under `.geartrain/state/runs/`.
 6. Print the final run summary.
 
-After that works, replace mock agent nodes with LangChain-backed agent execution.
+After that works, replace mock agent nodes with real execution — the `cli` runner first (default `codex exec`), then `langchain`.

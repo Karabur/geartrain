@@ -23,7 +23,7 @@ Create the `.geartrain/` workspace required by the first milestone.
 - Workspace is separate from the root `work/` folder.
 - Workspace config includes the default local `work_folder` path.
 - `geartrain-dev.workflow.yaml` includes `work_folder: work`.
-- Both agents use `type: codex`.
+- Both agents use `type: cli` with `cli.command` defaulting to `codex exec`.
 - Workflow references only `coder` and `lead`.
 
 ## Acceptance Criteria

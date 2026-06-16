@@ -37,12 +37,12 @@ Individual AI units that perform specific tasks. Each agent has a defined role, 
 
 | Type | Runtime | LLM Provider | Configuration | MVP Status |
 |------|---------|--------------|---------------|------------|
-| LangChain Agent | LangChain + LangGraph | Configurable (OpenAI, Anthropic, etc.) via the user's engine-scoped provider connection | No-code (YAML definition) | **In scope** |
-| CLI Agent | Local CLI tool (Claude Code, Codex) | Uses the user's engine-scoped local subscription/credentials | CLI config reference | Deferred |
+| LangChain Agent | LangChain + LangGraph | Configurable (OpenAI, Anthropic, local/open-source) via the user's engine-scoped provider connection | No-code YAML: `llm` + `tools` blocks | **In scope** |
+| CLI Agent | Headless local CLI tool (`codex exec`, and similar), run one-shot | Uses the user's engine-scoped local subscription/credentials | No-code YAML: `cli` block (command, timeout, sandbox) | **In scope** |
 | SDK Agent | Vendor-specific agentic SDK (Anthropic Agent SDK, OpenAI Agents SDK, etc.) | SDK-managed | SDK config + YAML bridge | Deferred |
 | Cloud Agent | Remote API | Provider-managed | API credentials | Deferred |
 
-Manual CLI-agent bootstrap is in scope before full CLI-agent runtime support. In that mode GearTrain does not launch or control the CLI agent. It builds a prompt packet from the workspace and stores the packet/output under `.geartrain/runs/`. A developer starts the CLI agent manually and asks it to use the packet.
+Both MVP types are the same abstraction from the workflow's side — a node that takes a task and returns plain text (see [07-design-notes.md](07-design-notes.md#agent-as-an-abstraction)). The difference is who owns the agent loop. A `langchain` agent runs inside GearTrain with GearTrain tools and context assembly. A `cli` agent is an external tool GearTrain spawns headless (default `codex exec`); the CLI owns its own loop, tools, and sandbox, so GearTrain front-loads context into the prompt rather than injecting tools at call time. The interactive, user-driven variant of external agents is a separate future mode — see [User-Controlled IDE/CLI Agents](07-design-notes.md#user-controlled-idecli-agents).
 
 **SDK Agents** are built on vendor-specific agentic SDKs — Anthropic Agent SDK, OpenAI Agents SDK, and similar frameworks that provide their own tool-use loops, context management, and orchestration primitives. Unlike LangChain agents (which GearTrain fully controls) or CLI agents (which GearTrain wraps), SDK agents bring their own execution model. GearTrain provides the environment — tools, memory, context — but the SDK handles the agent loop internally.
 
@@ -110,6 +110,35 @@ runtime:
   output:
     format: plain_text
     # Output structure is controlled by the system prompt and action instructions.
+  on_failure: escalate
+```
+
+A `cli` agent carries a different config block. There's no `llm` or `tools` section — the external CLI brings its own model and tools. GearTrain assembles the prompt (system prompt, project paths, task, selected memory as text, prior output) and runs the command headless:
+
+```yaml
+# agents/coder.agent.yaml
+name: coder
+type: cli
+description: "Implements approved code changes via a headless CLI agent"
+
+cli:
+  command: codex exec          # default; configurable per agent or engine
+  # extra_args: ["--model", "gpt-5.5"]
+  timeout_seconds: 900
+  work_folder: work            # optional; falls back to workflow/workspace default
+  sandbox: workspace-write     # passthrough to the CLI's own sandbox/approval mode
+  # credential: codex.default  # engine-scoped CLI credential reference
+
+system_prompt: |
+  You are a senior software engineer working on ${workspace.project.name}.
+  Follow the project's coding conventions and the workspace memory provided.
+
+memory:
+  read:                        # injected into the prompt as context, not as live tools
+    - workspace
+    - workflow
+
+runtime:
   on_failure: escalate
 ```
 
@@ -305,8 +334,8 @@ agents:
   registry: ./.geartrain/agents/
 workflows:
   registry: ./.geartrain/workflows/
-runs:
-  root: ./.geartrain/runs/
+state:
+  root: ./.geartrain/state/
 ```
 
 ### Team Isolation
@@ -442,7 +471,7 @@ Core requirements:
 - **Output contracts:** Workflow steps define expected output shape, validation, repair, and fallback behavior so smaller models get explicit targets.
 - **Evals by route:** Evals compare prompts, retrieval rules, tool-selection rules, and model routes so teams can decide where smaller models are safe.
 
-MVP can keep the implementation simple: hand-assembled prompt packets, keyword search, explicit tool lists, and plain text outputs. The important constraint is that these are behind interfaces that can grow into precise RAG, dynamic tool discovery, prompt compression, and off-transcript helper calls later.
+MVP can keep the implementation simple: straight-line context assembly, keyword search, explicit tool lists, and plain text outputs. The important constraint is that these are behind interfaces that can grow into precise RAG, dynamic tool discovery, prompt compression, and off-transcript helper calls later.
 
 ---
 
