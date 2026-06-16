@@ -1,0 +1,35 @@
+schema_version: 1
+name: geartrain-core
+description: "GearTrain core development workspace"
+
+project:
+  name: GearTrain
+  repo_root: "."
+  knowledge_base:
+    - docs/
+    - references/
+
+llm:
+  default_provider: anthropic
+  default_model: claude-sonnet-4
+  model_hints:
+    reasoning: claude-opus-4
+    code: claude-sonnet-4
+    fast: claude-haiku-4
+    summarize: claude-haiku-4
+
+registries:
+  agents: .geartrain/agents
+  workflows: .geartrain/workflows
+
+memory:
+  root: .geartrain/memory
+  workspace: .geartrain/memory/workspace
+  workflows: .geartrain/memory/workflows
+  agent_types: .geartrain/memory/agent-types
+
+integrations:
+  github:
+    owner: geartrain
+    repo: geartrain
+    credential: github.default

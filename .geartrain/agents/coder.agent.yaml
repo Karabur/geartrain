@@ -1,0 +1,20 @@
+schema_version: 1
+name: coder
+description: "Implements approved code changes via a headless CLI agent"
+type: cli
+
+cli:
+  command: codex exec
+  timeout_seconds: 900
+  work_folder: work
+  sandbox: workspace-write
+  credential: codex.default
+
+system_prompt: |
+  You are a senior software engineer working on ${workspace.project.name}.
+  Follow the workspace memory and project documentation provided in the prompt.
+
+memory:
+  read:
+    - workspace
+    - workflow

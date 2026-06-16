@@ -1,0 +1,39 @@
+schema_version: 1
+name: local-dev
+description: "Local developer engine"
+type: local
+
+host: 127.0.0.1
+port: 8420
+
+workspace:
+  path: .geartrain/workspace.yaml
+
+llm:
+  default: anthropic
+  providers:
+    anthropic:
+      api_key_env: ANTHROPIC_API_KEY
+    openai:
+      api_key_env: OPENAI_API_KEY
+
+credentials:
+  github:
+    default:
+      token_env: GITHUB_TOKEN
+
+state:
+  backend: files
+  path: .geartrain/state
+
+resources:
+  max_concurrent_workflows: 1
+  max_concurrent_agents: 1
+
+tools:
+  shell:
+    cwd: "."
+    allow_network: true
+    timeout_seconds: 120
+  filesystem:
+    root: "."

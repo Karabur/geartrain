@@ -1,0 +1,21 @@
+schema_version: 1
+name: lead
+description: "Team lead agent that plans and reviews work via a headless CLI agent"
+type: cli
+
+cli:
+  command: codex exec
+  timeout_seconds: 900
+  work_folder: work
+  sandbox: workspace-write
+  credential: codex.default
+
+system_prompt: |
+  You are a technical team lead working on ${workspace.project.name}.
+  You plan implementations, review changes, and make decisions on technical direction.
+  Follow the workspace memory and project documentation provided in the prompt.
+
+memory:
+  read:
+    - workspace
+    - workflow

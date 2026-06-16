@@ -1,0 +1,55 @@
+schema_version: 1
+name: geartrain-dev
+description: "Dogfooding workflow for developing GearTrain itself"
+version: 0.1.0
+
+trigger:
+  type: manual
+
+channels:
+  human: cli
+
+agents:
+  lead: lead
+  coder: coder
+
+graph:
+  entry: intake
+  nodes:
+    intake:
+      type: agent
+      agent: lead
+      action: analyze_task
+      inputs:
+        task: ${trigger.task}
+      output_key: plan
+      transitions:
+        default: approve_plan
+
+    approve_plan:
+      type: human_checkpoint
+      mode: approval
+      prompt: "Approve the implementation plan?"
+      transitions:
+        approved: implement
+        rejected: intake
+
+    implement:
+      type: agent
+      agent: coder
+      action: implement
+      inputs:
+        plan: ${nodes.intake.output}
+      output_key: changes
+      transitions:
+        default: review
+
+    review:
+      type: agent
+      agent: lead
+      action: review_diff
+      inputs:
+        changes: ${nodes.implement.output}
+      output_key: review
+      transitions:
+        default: end
