@@ -6,7 +6,41 @@ Usage:
 """
 
 import argparse
+import os
 import sys
+from pathlib import Path
+
+from geartrain.engine.validator import (
+    format_diagnostics,
+    validate_all,
+    validate_engine,
+    validate_workflow,
+    validate_workspace,
+)
+
+
+def _find_config_files() -> tuple[Path, Path | None]:
+    """Find workspace and engine config files relative to CWD."""
+    cwd = Path.cwd()
+    ws_path = cwd / ".geartrain" / "workspace.yaml"
+    engine_path = cwd / ".geartrain" / "engines" / "local.engine.yaml"
+
+    if not ws_path.exists():
+        return ws_path, None
+    if not engine_path.exists():
+        return ws_path, None
+    return ws_path, engine_path
+
+
+def _run_validate() -> int:
+    """Run validation and return exit code."""
+    ws_path, engine_path = _find_config_files()
+
+    diags = validate_all(ws_path, engine_path)
+    print(format_diagnostics(diags))
+
+    has_errors = any(d.sev == "error" for d in diags)
+    return 1 if has_errors else 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,7 +59,14 @@ def build_parser() -> argparse.ArgumentParser:
     engine_sub.add_parser("status", help="Show engine status")
 
     # -- validate --
-    subparsers.add_parser("validate", help="Validate workspace configuration")
+    val = subparsers.add_parser("validate", help="Validate workspace configuration")
+    val.add_argument(
+        "target",
+        nargs="?",
+        default="all",
+        choices=["workspace", "engine", "agent", "workflow", "memory", "all"],
+        help="What to validate (default: all)",
+    )
 
     # -- agent --
     agent = subparsers.add_parser("agent", help="Run an agent directly")
@@ -54,7 +95,8 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Engine: {args.engine_action}")
 
     elif args.command == "validate":
-        print("Validate: checking workspace configuration")
+        rc = _run_validate()
+        sys.exit(rc)
 
     elif args.command == "agent":
         print(f"Agent: running '{args.agent_name}' with prompt: {args.prompt}")
