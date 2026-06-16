@@ -153,7 +153,7 @@ Validation rules:
 
 - `type` must be `local` for MVP.
 - `workspace.path` must resolve to a valid workspace config.
-- `state.backend` must be `files` for the first MVP slice.
+- `state.backend` must be `files` for the runnable version.
 - State may live inside the workspace only when the backend is `files` or `sqlite`.
 - File-backed state must be stored as markdown files under the configured state path.
 - Provider credential fields must name environment variables, not contain secret values.
@@ -241,7 +241,7 @@ Validation rules:
 - Every tool must exist in the engine tool registry.
 - `context.budget_tokens`, when set, must be a positive integer.
 - Retrieval limits must be positive integers and should be low enough to fit the context budget.
-- `context.tools.mode` must be `static` for the first MVP slice. `dynamic` is reserved for later runtime tool selection.
+- `context.tools.mode` must be `static` for the runnable version. `dynamic` is reserved for later runtime tool selection.
 - Tool categories are advisory until dynamic tool exposure is implemented.
 - Write scopes must be a subset of allowed scopes for the agent type.
 - `system_prompt` may reference workspace, engine, memory, and workflow context variables, but every static reference must resolve.
@@ -368,7 +368,7 @@ graph:
 
 Validation rules:
 
-- `trigger.type` must be `manual` for the first MVP slice.
+- `trigger.type` must be `manual` for the runnable version.
 - `graph.entry` must reference an existing node.
 - Every node must have a supported `type`.
 - Every agent node must reference an agent declared in `agents`.
@@ -398,7 +398,7 @@ MVP supports four node types.
 | `human_checkpoint` | Wait for human approval or input | `mode`, `prompt`, `transitions` |
 | `integration` | Call a configured integration | `service`, `action`, `inputs`, `transitions` |
 
-The first vertical slice can implement only `agent` with a mock runner and `human_checkpoint` through CLI. The contract should still reserve the other node types so workflow files don't churn immediately after the slice.
+The runnable version (phases 1-3) can implement only `agent` with a mock runner and `human_checkpoint` through CLI. The contract should still reserve the other node types so workflow files don't churn as later phases land.
 
 ## Node Inputs And Outputs
 

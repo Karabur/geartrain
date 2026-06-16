@@ -1,10 +1,10 @@
-# First Milestone Implementation Spec
+# Runnable Version Implementation Spec
 
-Build the first executable GearTrain loop around a local engine and the `cli` agent type, with Codex as its first command.
+This is the detailed contract for the first runnable version of GearTrain — phases 1-3 in [ROADMAP.md](ROADMAP.md). It builds the first executable GearTrain loop around a local engine and the `cli` agent type, with Codex as its first command.
 
-The milestone should prove that GearTrain can load a repo-local workspace, validate it on engine startup, run named agents through Codex CLI non-interactive execution, and run one simple workflow iteration against a task in `work/`.
+It should prove that GearTrain can load a repo-local workspace, validate it on engine startup, run named agents through Codex CLI non-interactive execution, and run one simple workflow iteration against a task in `work/`.
 
-This slice implements the `cli` agent type only — the headless, one-shot runner described in [../docs/07-design-notes.md](../docs/07-design-notes.md#agent-as-an-abstraction). `codex exec` is its default command. The `langchain` agent type is the next slice; it implements the same `run(task, context) -> str` interface so the workflow doesn't change when it lands.
+The runnable version implements the `cli` agent type only — the headless, one-shot runner described in [../docs/07-design-notes.md](../docs/07-design-notes.md#agent-as-an-abstraction). `codex exec` is its default command. The `langchain` agent type is Phase 4; it implements the same `run(task, context) -> str` interface so the workflow doesn't change when it lands.
 
 ## Goals
 
@@ -28,7 +28,7 @@ This slice implements the `cli` agent type only — the headless, one-shot runne
 ## Non-Goals
 
 - No manual prompt-packet bootstrap (removed from the plan entirely).
-- No `langchain` agent type in this slice — it's the next slice, built against the same agent interface.
+- No `langchain` agent type in the runnable version — it's Phase 4, built against the same agent interface.
 - No web UI.
 - No memory implementation beyond a placeholder memory manager.
 - No GitHub integration.
@@ -92,7 +92,7 @@ Task selection:
 1. If `work/in-progress/` contains task files, pick the first task by filename sort.
 2. Otherwise pick the first task from `work/todo/` by filename sort.
 3. When a task is picked from `todo/`, move it to `in-progress/` before running `coder`.
-4. The first milestone does not automatically move tasks to `done/`. The lead or user can do that after review.
+4. The runnable version does not automatically move tasks to `done/`. The lead or user can do that after review.
 
 ## GearTrain Workspace
 
@@ -101,6 +101,8 @@ Required layout:
 ```text
 .geartrain/
 ├── workspace.yaml
+├── engines/
+│   └── local.engine.yaml
 ├── agents/
 │   ├── coder.agent.yaml
 │   └── lead.agent.yaml
@@ -196,7 +198,7 @@ The lead prompt must include:
 - direct user input
 - available tool: `workflow start`
 
-The first milestone supports one tool for the lead agent:
+The runnable version supports one tool for the lead agent:
 
 ```text
 workflow start
@@ -210,7 +212,7 @@ Implementation can use a simple engine-side protocol for tool calls. For example
 GEARTRAIN_TOOL workflow start
 ```
 
-the engine runs the workflow start action and returns the tool result with the lead response. Only one tool call needs to be supported in the first milestone.
+the engine runs the workflow start action and returns the tool result with the lead response. Only one tool call needs to be supported in the runnable version.
 
 ## Engine
 
@@ -311,7 +313,7 @@ If no task exists, the workflow returns a clear message and ends.
 
 ## State
 
-State is file-backed for the first milestone.
+State is file-backed for the runnable version.
 
 Suggested files:
 
@@ -327,11 +329,13 @@ State files should be easy to inspect and edit manually. Keep frontmatter minima
 
 ## Validation
 
-Validation happens on engine startup.
+Validation runs on engine startup and through `geartrain validate`. The command validates every config file the MVP uses: workspace, engine, agent, workflow, and memory.
 
 Validate:
 
 - `.geartrain/workspace.yaml` exists.
+- `.geartrain/engines/local.engine.yaml` loads and names credentials as env vars, not raw secrets.
+- shared rules on every definition: `schema_version: 1`, `name` matches `^[a-z][a-z0-9-]*$`, `description` present, unknown top-level fields rejected.
 - registry paths exist.
 - workspace default `work_folder` exists when configured.
 - workflow `work_folder` exists when configured.
@@ -342,11 +346,11 @@ Validate:
 - `geartrain-dev` workflow has a work folder or can use the workspace default.
 - state and log directories are writable.
 
-No separate `geartrain validate` CLI command is required for this milestone.
+The validator makes no LLM or network calls.
 
 ## Acceptance Criteria
 
-The milestone is complete when:
+The runnable version is complete when:
 
 1. `geartrain engine start` loads and validates `.geartrain/`.
 2. Invalid config causes the engine to print a clear error and quit.

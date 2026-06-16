@@ -1,4 +1,4 @@
-# GearTrain — MVP Scope & 2-Week Implementation Plan
+# GearTrain — MVP Scope & Phased Implementation Plan
 
 ## Goal
 
@@ -15,7 +15,7 @@ At minimum, a developer should be able to:
 6. Have agents create a GitHub PR at the end of a successful run
 7. Inspect workflow state and history
 
-The MVP ships two agent types behind one abstraction. A `cli` agent runs an external CLI tool headless and one-shot (default `codex exec`); a `langchain` agent runs inside GearTrain on LangChain/LangGraph. From the workflow's side they're identical — a node that takes a task and returns plain text — so a developer chooses the type per agent and the workflow doesn't change. The first runnable slice uses the `cli` type because a subprocess that returns text is the fastest path to a working loop; see [../work/SPEC.md](../work/SPEC.md) for that slice's task breakdown.
+The MVP ships two agent types behind one abstraction. A `cli` agent runs an external CLI tool headless and one-shot (default `codex exec`); a `langchain` agent runs inside GearTrain on LangChain/LangGraph. From the workflow's side they're identical — a node that takes a task and returns plain text — so a developer chooses the type per agent and the workflow doesn't change. The first runnable version uses the `cli` type because a subprocess that returns text is the fastest path to a working loop; see [../work/ROADMAP.md](../work/ROADMAP.md) for the phase breakdown and [../work/SPEC.md](../work/SPEC.md) for the runnable version's detailed contract.
 
 For MVP, GearTrain must ship with its own working workspace definition in the repo. That workspace is the first real product configuration: the local engine loads it by default and uses it to run GearTrain's own development workflow.
 
@@ -66,7 +66,7 @@ These are important but not required for the dogfooding milestone:
 
 ### 1. YAML Over Visual Editor
 **Decision:** Workflows and agents are configured via YAML files, not a visual UI.
-**Why:** Building a visual workflow editor would consume the entire 2 weeks. The target users (developers) are comfortable with YAML. The visual editor is a fast follow once the runtime is proven.
+**Why:** Building a visual workflow editor would consume the entire timeline. The target users (developers) are comfortable with YAML. The visual editor is a fast follow once the runtime is proven.
 **Risk:** YAML errors are hard to debug. Mitigation: robust validation with clear error messages.
 
 ### 2. Markdown Memory Over Vector Store
@@ -76,7 +76,7 @@ These are important but not required for the dogfooding milestone:
 
 ### 3. Git-Backed Workspace Over Hosted Team System
 **Decision:** The default workspace is a folder inside the project repo, not a hosted team database.
-**Why:** GearTrain needs agents, workflows, and memory before it needs account management. Git already gives the MVP sharing, history, review, branching, rollback, and conflict handling. This keeps the first milestone focused on running useful workflows.
+**Why:** GearTrain needs agents, workflows, and memory before it needs account management. Git already gives the MVP sharing, history, review, branching, rollback, and conflict handling. This keeps the early phases focused on running useful workflows.
 **Risk:** Git conflicts can happen when multiple developers or agents edit the same memory files. Mitigation: keep entries small, write append-only files by default, and rely on PR review for curated changes.
 
 ### 4. Local Engine Only
@@ -87,7 +87,7 @@ These are important but not required for the dogfooding milestone:
 ### 5. Two Agent Types: CLI and LangChain
 **Decision:** MVP ships two agent types behind one abstraction. A `cli` agent spawns an external tool headless and one-shot (default `codex exec`) and reads plain text back. A `langchain` agent runs in-process with GearTrain tools and context assembly. The workflow treats both as the same node.
 **Why:** The `cli` type is the fastest path to a running loop — no agent-runtime code, just a subprocess — and it unlocks subscription-based execution, since `codex exec` can reuse the user's CLI auth instead of per-token API billing. The `langchain` type gives GearTrain full control of the loop, tools, and context for agents that need it, and is where local/open-source LLMs plug in. Building both against one interface keeps the workflow layer agnostic and lets future types (`sdk`, `cloud`) slot in.
-**Risk:** Two runners is more surface than one. Mitigation: keep the abstraction thin (`run(task, context) -> str`), ship `cli` first as the first slice, then add `langchain` against the same interface. The subscription-cost benefit is vendor-specific and shifting — OpenAI discourages subscription auth for unattended runs, and Anthropic now bills headless Claude Code at API rates — so treat it as a cost lever, not a guarantee; the agnostic interface means a `cli` node can be swapped for an API-billed `langchain` node without touching the workflow.
+**Risk:** Two runners is more surface than one. Mitigation: keep the abstraction thin (`run(task, context) -> str`), ship `cli` first (Phase 2), then add `langchain` against the same interface (Phase 4). The subscription-cost benefit is vendor-specific and shifting — OpenAI discourages subscription auth for unattended runs, and Anthropic now bills headless Claude Code at API rates — so treat it as a cost lever, not a guarantee; the agnostic interface means a `cli` node can be swapped for an API-billed `langchain` node without touching the workflow.
 
 Fast follow: add interactive, user-controlled IDE/CLI agents for coding workflows. In that mode, the engine waits for an external IDE or CLI agent connection instead of spawning a one-shot process, exposes task context through MCP or a similar local protocol, and resumes the workflow when the external agent submits results.
 
@@ -129,202 +129,43 @@ Fast follow: add interactive, user-controlled IDE/CLI agents for coding workflow
 
 ---
 
-## Implementation Plan (2 Weeks)
+## Implementation Plan (Phases)
 
-### Phase 0: First Slice — CLI Agent Loop
+The MVP is the dogfooding milestone, delivered as eight phases. Each phase covers one module and stands on its own. Phases 1-3 deliver the first runnable version of GearTrain; phases 1-8 deliver the MVP. The full task breakdown lives in [../work/ROADMAP.md](../work/ROADMAP.md); the runnable version's detailed contract is in [../work/SPEC.md](../work/SPEC.md).
 
-**Objective:** Get one real GearTrain loop running end to end with the `cli` agent type before the fuller runtime exists. This slice is specified in detail in [../work/SPEC.md](../work/SPEC.md); the summary here keeps the plan aligned with it.
+**Phase 1 — Engine Foundation & Config.** The engine starts, loads and validates every MVP config file (workspace, engine, agent, workflow, memory), writes file-backed state, and serves a local HTTP API. Includes `geartrain validate` and a no-op sandbox layer so a real sandbox can drop in later.
 
-Tasks:
-- Stand up the local engine: load and validate `.geartrain/workspace.yaml` on startup, expose a small HTTP API.
-- Implement the `cli` agent runner: build the prompt from agent config, workspace paths, work folder, task content, and prior output, then run `codex exec` and capture plain text.
-- Define two `cli` agents (`coder`, `lead`) and one small workflow (`geartrain-dev`): pick a task from `work/`, run `coder`, pass output to `lead`, write a log line.
-- File-back run state under `.geartrain/state/`. Prevent parallel runs of the same workflow.
+**Phase 2 — CLI Agent Type & Direct Execution.** A `cli` agent (default `codex exec`) runs one-shot behind the shared `run(task, context) -> str` interface, with a shared context builder and a `geartrain agent` command.
 
-Deliverable: `geartrain workflow start` runs one `geartrain-dev` iteration through real `codex` agents and writes run state.
+**Phase 3 — Workflow Engine & Runnable Version.** The generic YAML-driven LangGraph engine, the four node types (agent, decision, human_checkpoint, integration), variable resolution, locking, and log-and-stop error handling. Runs the `geartrain-dev` workflow end to end from the CLI. This phase delivers the first runnable version.
 
-### Week 1: Foundation
+**Phase 4 — LangChain Agent Type.** The in-process `langchain` runner against the same interface, with file/search/shell/git tools (routed through the sandbox), LLM provider resolution, and prompt interpolation.
 
-#### Days 1-2: Project Skeleton & Core Models
+**Phase 5 — Memory & Knowledge System.** Git-backed markdown memory as the single source of truth, edited by humans and agents. `MarkdownMemoryStore`, memory/KB tools, scope isolation, and a secret-pattern write guardrail. No conflict-resolution machinery: last write to a file wins, git review curates changes.
 
-**Objective:** Runnable project with core data models and configuration loading.
+**Phase 6 — GitHub Integration.** Branch, commit, and PR creation, issue read/update, exposed as agent tools and backing the `integration` node.
 
-Tasks:
-- Initialize Python project structure (monorepo: `geartrain/` package)
-- Set up development tooling: pyproject.toml, ruff, mypy, pytest
-- Define the default workspace folder structure:
-  - `.geartrain/workspace.yaml` — project/workspace config
-  - `.geartrain/agents/` — agent definitions
-  - `.geartrain/workflows/` — workflow definitions
-  - `.geartrain/memory/workspace/` — project/workspace operational memory
-  - `.geartrain/memory/agent-types/` — agent-type memory
-  - `.geartrain/memory/workflows/` — reusable workflow memory and run summaries
-  - `.geartrain/state/` — file-backed workflow state and per-run outputs (`state/runs/<run-id>/`)
-- Define Pydantic models for all YAML schemas:
-  - `AgentDefinition` — name, type, LLM config, system prompt, tools, memory config
-  - `WorkflowDefinition` — name, nodes, transitions, triggers, channels
-  - `WorkspaceConfig` — project name, LLM defaults, integrations, registry paths, memory paths
-  - `EngineConfig` — host, port, resources, state backend
-- Implement YAML loading and validation with clear error messages
-- Write a sample agent definition and workflow definition
-- Write tests for configuration loading
+**Phase 7 — Web UI.** A minimal React + Vite app over FastAPI endpoints with WebSocket updates: dashboard, workflow detail, human checkpoint, and memory browser.
 
-Deliverable: `geartrain validate .geartrain/agents/coder.agent.yaml` works and reports errors.
-
-#### Days 3-4: Agent Runtime
-
-**Objective:** Both agent types instantiable from YAML behind one interface. The `cli` runner already exists from Phase 0; this adds the `langchain` runner and the shared abstraction.
-
-Tasks:
-- Define the agent interface: `run(task, context) -> str`. Both runners implement it; the workflow only sees this.
-- Implement `AgentFactory` — dispatch on `type`: `cli` returns the subprocess runner, `langchain` returns a `create_agent`-backed runnable.
-- Implement core LangChain tools (for `langchain` agents): `file_read`, `file_write`, `shell_exec` (sandboxed to project dir), `git_operations`, `project_search`.
-- Implement system prompt template resolution (`${variable}` interpolation).
-- Implement a shared context builder used by both runners — assembled in-context for `langchain`, front-loaded into the prompt for `cli`.
-- Implement LLM provider resolution for `langchain` agents: team provider/model defaults, engine loads each user's local OpenAI/Anthropic/local connection. (`cli` agents resolve credentials through the CLI's own auth.)
-- Write tests: a `langchain` coder reads a file, makes a change, runs tests; a `cli` coder runs against a fake `codex` command.
-- Implement basic agent execution logging for both runners.
-
-Deliverable: A coder agent defined in YAML runs under either `type`, selected by the definition, with no change to the workflow.
-
-#### Day 5: Memory & Knowledge System (MVP)
-
-**Objective:** Git-backed markdown memory/knowledge store that agents can read from and write to.
-
-Tasks:
-- Implement `MemoryStore` interface (Protocol class) with `scope` and `system` parameters
-- Implement `MarkdownMemoryStore` for persistent scopes (workspace memory, workflow memory, agent-type memory, knowledge base):
-  - `write()` — creates a markdown file with YAML frontmatter (scope, system, category, tags)
-  - `read()` — keyword search across files, returns ranked results, respects scope visibility
-  - `update()` — modifies an existing entry
-  - `list()` — lists entries by scope, system, category, tags
-  - `forget()` — soft-deletes an entry
-- Workflow run state and agent-instance context: stored as markdown files under `.geartrain/state/` where useful
-- Implement memory as LangChain tools (`memory_read`, `memory_write`, `kb_read`, `kb_write`)
-- Implement regex-based guardrail for memory writes (reject secrets, credentials)
-- Scope isolation: workspace memory, workflow memory, agent-type memory, and knowledge base in separate directories
-- Implement scope visibility rules: agent reads instance + workflow + workspace + agent-level
-- Write tests for memory operations
-
-Deliverable: An agent can write a workspace, workflow, agent-type, or KB entry in `.geartrain/memory/`, and a subsequent agent run can retrieve it. Agent-type memories are isolated by agent type.
-
-### Week 2: Workflow Engine & UI
-
-#### Days 6-7: Workflow Engine
-
-**Objective:** LangGraph-based workflow runtime that executes YAML-defined workflows.
-
-Tasks:
-- Implement `WorkflowFactory` — takes a `WorkflowDefinition`, builds a LangGraph graph
-- Implement node types:
-  - `AgentNode` — instantiates and runs an agent, captures output
-  - `DecisionNode` — evaluates conditions, routes to next node
-  - `HumanCheckpointNode` — pauses workflow, emits a checkpoint event, waits for response
-  - `IntegrationNode` — calls an external service (GitHub for MVP)
-- Implement state management:
-  - Workflow state stored as markdown files under `.geartrain/state/`
-  - State includes: current node, plain text agent outputs, human responses, memory references
-- Implement variable resolution across workflow context
-- Implement transition logic (output-based routing)
-- Write tests: run a simple 3-node workflow (agent → decision → agent)
-
-Deliverable: A feature-development workflow can run end-to-end in tests (with mocked human input).
-
-#### Day 8: GitHub Integration & CLI
-
-**Objective:** Working GitHub integration and CLI to start/manage workflows.
-
-Tasks:
-- Implement GitHub integration:
-  - Create branch, commit changes, create PR with description
-  - Read issues (title, body, labels, assignee)
-  - Update issue status/labels
-- Wrap as LangChain tools available to agents
-- Implement CLI:
-  - `geartrain init` — scaffold `.geartrain/` in the current repo
-  - `geartrain validate <file>` — validate any YAML definition
-  - `geartrain agent <agent> "<prompt>"` — run a single named agent (either type) one-shot
-  - `geartrain run <workflow> [--task <description>]` — start a workflow run from the default workspace
-  - `geartrain status` — show running workflows and their state
-  - `geartrain stop <run-id>` — stop a workflow run
-- Implement engine startup (loads workspace config, registers agents/workflows, starts API server)
-
-Deliverable: `geartrain run feature-development --task "add unit tests for memory store"` starts a real workflow.
-
-#### Days 9-10: Web UI
-
-**Objective:** Minimal web UI for workflow monitoring and human-in-the-loop interaction.
-
-Tasks:
-- Set up React + Vite project in `web/` directory
-- Implement FastAPI backend endpoints:
-  - `GET /api/workflows` — list active workflow runs
-  - `GET /api/workflows/{id}` — workflow run state and history
-  - `GET /api/workflows/{id}/checkpoints` — pending human checkpoints
-  - `POST /api/workflows/{id}/checkpoints/{id}/respond` — submit human response
-  - `GET /api/memory` — browse memory entries
-  - `GET /api/memory/{scope}` — list memories by scope
-  - WebSocket: real-time workflow state updates
-- Implement UI pages:
-  - **Dashboard** — list of active workflows, their status, current node
-  - **Workflow Detail** — step-by-step view of a running workflow, agent outputs, transition history
-  - **Checkpoint** — form for human input (approve/reject/provide text)
-  - **Memory Browser** — list/search/view memory entries by scope
-- Implement real-time updates via WebSocket (workflow state changes push to UI)
-
-Deliverable: Developer can watch a workflow run in the browser and respond to checkpoints.
-
-#### Days 11-12: Integration Testing & Dogfooding Prep
-
-**Objective:** End-to-end testing with the actual GearTrain codebase as the target project.
-
-Tasks:
-- Create the repo-backed `.geartrain/` workspace for self-development
-- Define agents: team-lead, coder, qa, reviewer (tuned for GearTrain codebase)
-- Define the feature-development workflow for GearTrain
-- Seed project memory with GearTrain architecture knowledge
-- Run end-to-end: pick a real task, run the workflow, produce a PR
-- Fix bugs and rough edges discovered during dogfooding
-- Write integration tests for the critical path
-- Document setup instructions for team members
-
-Deliverable: A developer can clone the repo, run `geartrain init && geartrain run feature-development`, and get a working PR out.
-
-#### Days 13-14: Polish & Documentation
-
-**Objective:** Stable enough for team members to use. Documentation complete.
-
-Tasks:
-- Fix critical bugs from dogfooding
-- Improve error messages and validation
-- Write setup guide (README.md)
-- Write user guide: how to define agents, workflows, run the system
-- Write contributor guide: how to add new tools, integrations, agent types
-- Create example configurations for common scenarios
-- Performance testing: can a workflow complete a simple task in under 10 minutes?
-- Tag v0.1.0
-
-Deliverable: Team members can set up and use GearTrain independently.
-
----
+**Phase 8 — Dogfooding (MVP).** The full agent set (team-lead, coder, qa, reviewer), the `feature-development` workflow, seeded project memory, an end-to-end run that produces a PR, integration tests, and setup docs. A developer can clone the repo, run `geartrain workflow start`, and get a working PR out.
 
 ## Risk Register
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| File-backed workflow state doesn't support the workflow patterns needed | Medium | High | Prototype the workflow engine first (day 6); fall back to a small custom state index or SQLite if markdown files become limiting |
+| File-backed workflow state doesn't support the workflow patterns needed | Medium | High | Prototype the workflow engine in Phase 3; fall back to a small custom state index or SQLite if markdown files become limiting |
 | Agent quality is too low to produce usable code | High | Medium | Start with small, well-scoped tasks; focus on the coordination value, not agent autonomy |
 | YAML schema becomes unwieldy | Medium | Low | Keep schemas flat and well-documented; visual editor is the real solution |
 | GitHub integration is flaky | Low | Medium | Robust error handling and retry logic; human can always complete GitHub steps manually |
 | Two agent runners diverge or the abstraction leaks | Medium | Medium | Keep the interface to `run(task, context) -> str`; ship `cli` first, add `langchain` against the same interface; cover both with the same workflow tests |
 | Subscription-auth cost benefit disappears (vendor policy) | Medium | Low | Don't assume it; `cli` nodes are swappable for API-billed `langchain` nodes without workflow changes |
-| 2 weeks is not enough | High | High | Cut UI polish, cut reviewer agent, cut QA agent. Minimum viable: team-lead + coder + human checkpoints + GitHub PR |
+| Scope is too large for the available time | High | High | Phases are ordered so phases 1-3 already yield a runnable version. Cut UI polish, cut reviewer agent, cut QA agent. Minimum viable: team-lead + coder + human checkpoints + GitHub PR |
 
 ---
 
 ## Absolute Minimum (If Time Runs Out)
 
-If the 2-week timeline is too aggressive, this is the bare minimum to demonstrate the concept:
+If the timeline is too aggressive, this is the bare minimum to demonstrate the concept:
 
 1. **Repo workspace** (`.geartrain/agents`, `.geartrain/workflows`, `.geartrain/memory`, `.geartrain/state`)
 2. **One `cli` agent** (coder, default `codex exec`) configurable via YAML — the cheapest runner to stand up
@@ -333,18 +174,18 @@ If the 2-week timeline is too aggressive, this is the bare minimum to demonstrat
 5. **CLI only** (no web UI — human checkpoints via terminal prompts)
 6. **GitHub PR creation** (the one integration)
 
-This could be achieved in ~5 days and would prove the architecture works, even if it's not comfortable to use. The `langchain` agent type can follow once the loop holds.
+This is roughly phases 1-3 plus a single GitHub PR step, and would prove the architecture works even if it's not comfortable to use. The `langchain` agent type (Phase 4) can follow once the loop holds.
 
 ---
 
 ## Open Questions [To Be Defined]
 
-1. **Agent tool sandboxing** — how to prevent agents from accessing files outside the project? Containerization? chroot? Honor system with guardrails?
+1. **Agent tool sandboxing** — **Resolved (out of MVP scope).** No enforced sandbox in the MVP. The engine routes tool and command execution through a no-op sandbox layer so a real sandbox (containerization, chroot, or guardrails) can drop in later without refactoring.
 2. **Cost tracking** — how to measure and limit LLM API costs per workflow run? Per agent? Per team?
 3. **Concurrent workflow runs** — what happens when two developers run the same workflow on the same repo? Branch isolation? Locking?
-4. **Memory conflict resolution** — when two agents write contradictory git-backed memories, which wins? Timestamp? Confidence? Human review?
+4. **Memory conflict resolution** — **Resolved (not needed for MVP).** Memory is plain markdown files that are the single source of truth, edited by both humans and agents. Last write to a file wins; git review curates contradictory changes. No timestamp/confidence machinery.
 5. **Agent-to-agent communication** — can agents talk to each other directly within a workflow, or only through the graph? Direct messaging adds flexibility but complexity.
-6. **Workflow error handling** — what happens when an agent fails? Retry? Skip? Human escalation? Configurable per node?
+6. **Workflow error handling** — **Resolved for MVP (log-and-stop).** On node or agent failure, the engine logs the error to run state and the workflow log, marks the run failed, releases the lock, and stops. No retry, skip, or escalation in the MVP.
 7. **LLM provider failover** — if the primary LLM provider is down, can agents fail over to an alternative? How is this configured?
 8. **Workflow composability** — how do sub-workflows share state with parent workflows? What's the data contract?
 9. **Observability** — what telemetry does the engine emit? OpenTelemetry? Custom format?

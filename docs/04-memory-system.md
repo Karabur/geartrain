@@ -336,7 +336,7 @@ A background process that consolidates and improves memory:
 
 ## MVP Implementation
 
-For the 2-week MVP, the system is simplified:
+For the MVP, the system is simplified:
 
 | Feature | MVP | Future |
 |---------|-----|--------|
