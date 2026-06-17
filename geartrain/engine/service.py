@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from starlette.applications import Starlette
 from starlette.routing import Route
 from starlette.responses import JSONResponse
 
+from geartrain.agents.factory import AgentFactory
 from geartrain.engine.app import EngineApp
 
 
@@ -24,9 +27,26 @@ def create_app(engine_app: EngineApp) -> Starlette:
             return JSONResponse(
                 {"error": f"Unknown agent: {name}"}, status_code=404
             )
-        return JSONResponse(
-            {"error": "Agent execution not yet implemented"}, status_code=501
-        )
+
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+
+        task = body.get("task", "")
+        context = {
+            "project_root": engine_app.workspace.project.repo_root,
+            "project_name": engine_app.workspace.project.name,
+        }
+
+        agent_def = engine_app.agents[name]
+        runner = AgentFactory.create(agent_def, engine_app.sandbox)
+
+        try:
+            output = await asyncio.to_thread(runner.run, task, context)
+            return JSONResponse({"output": output})
+        except RuntimeError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
 
     async def workflow_start(request):
         name = request.path_params["name"]

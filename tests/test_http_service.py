@@ -69,10 +69,10 @@ class TestAgentRun:
         assert resp.status_code == 404
         assert "Unknown agent" in resp.json()["error"]
 
-    def test_known_agent_returns_501(self, client):
-        resp = client.post("/agents/coder/run")
-        assert resp.status_code == 501
-        assert "not yet implemented" in resp.json()["error"]
+    def test_known_agent_run_fails_without_codex(self, client):
+        resp = client.post("/agents/coder/run", json={"task": "test"})
+        assert resp.status_code == 500
+        assert "error" in resp.json()
 
 
 class TestWorkflowStart:

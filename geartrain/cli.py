@@ -7,6 +7,7 @@ Usage:
 
 import argparse
 import http.client
+import json
 import os
 import signal
 import sys
@@ -129,6 +130,44 @@ def _run_engine_status() -> None:
             pass
 
 
+def _run_agent(name: str, prompt: str) -> None:
+    """Send a one-shot prompt to a named agent via the engine API and print the output."""
+    engine_path = Path.cwd() / ".geartrain" / "engines" / "local.engine.yaml"
+    try:
+        engine = load_engine(str(engine_path))
+        host = engine.host
+        port = engine.port
+    except FileNotFoundError:
+        host = "127.0.0.1"
+        port = 8420
+
+    body = json.dumps({"task": prompt}).encode()
+    try:
+        conn = http.client.HTTPConnection(host, port, timeout=600)
+        conn.request(
+            "POST",
+            f"/agents/{name}/run",
+            body=body,
+            headers={"Content-Type": "application/json"},
+        )
+        resp = conn.getresponse()
+        raw = resp.read()
+        conn.close()
+        data = json.loads(raw)
+
+        if resp.status == 404:
+            print(f"Error: {data.get('error', f'Unknown agent: {name}')}")
+            sys.exit(1)
+        elif resp.status != 200:
+            print(f"Error: {data.get('error', 'Agent run failed')}")
+            sys.exit(1)
+
+        print(data.get("output", ""), end="")
+    except (ConnectionRefusedError, OSError):
+        print("Engine is not running. Start it with 'geartrain engine start'.")
+        sys.exit(1)
+
+
 def _run_engine_stop() -> None:
     """Send stop signal to the running engine."""
     engine_path = Path.cwd() / ".geartrain" / "engines" / "local.engine.yaml"
@@ -219,7 +258,7 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(1 if has_errors else 0)
 
     elif args.command == "agent":
-        print(f"Agent: running '{args.agent_name}' with prompt: {args.prompt}")
+        _run_agent(args.agent_name, args.prompt)
 
     elif args.command == "workflow":
         if not args.workflow_action:

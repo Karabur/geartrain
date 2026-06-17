@@ -16,6 +16,19 @@ Agent-specific config files should be symlinks to this file, not copies. One sou
 
 Tasks are tracked as markdown files in `work/`, not in Linear or any external tracker. `work/ROADMAP.md` defines the phases; tasks move through `work/todo|in-progress|done/` and carry a `phase` frontmatter field. See `work/README.md` for the format.
 
+## Python Environment
+
+The venv is already activated in this shell. Do not call `source` or activate the venv before running Python commands — just run them directly.
+
+## Multi-Ticket Workflow
+
+When working through a queue of tasks:
+1. Take the next ticket from `work/todo/`
+2. Spawn a subagent to implement it
+3. Commit the changes
+4. Move the ticket file to `work/done/`
+5. Repeat
+
 ## Imported Claude Cowork project instructions
 
 All work done here should be in agent and model agnostic way. agent-specific files should be symlinks to generic instructions and skills.
