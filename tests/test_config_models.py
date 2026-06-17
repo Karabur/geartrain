@@ -175,21 +175,17 @@ class TestLoadWorkflow:
         cfg = load_workflow(
             str(ROOT / ".geartrain" / "workflows" / "geartrain-dev.workflow.yaml")
         )
-        assert cfg.graph.entry == "intake"
-        assert len(cfg.graph.nodes) == 4
-        assert "intake" in cfg.graph.nodes
-        assert "approve_plan" in cfg.graph.nodes
-        assert "implement" in cfg.graph.nodes
-        assert "review" in cfg.graph.nodes
+        assert cfg.graph.entry == "run_coder"
+        assert len(cfg.graph.nodes) == 2
+        assert "run_coder" in cfg.graph.nodes
+        assert "run_lead" in cfg.graph.nodes
 
     def test_node_types(self):
         cfg = load_workflow(
             str(ROOT / ".geartrain" / "workflows" / "geartrain-dev.workflow.yaml")
         )
-        assert cfg.graph.nodes["intake"]["type"] == "agent"
-        assert cfg.graph.nodes["approve_plan"]["type"] == "human_checkpoint"
-        assert cfg.graph.nodes["implement"]["type"] == "agent"
-        assert cfg.graph.nodes["review"]["type"] == "agent"
+        assert cfg.graph.nodes["run_coder"]["type"] == "agent"
+        assert cfg.graph.nodes["run_lead"]["type"] == "agent"
 
 
 # --- Memory entry tests ----------------------------------------------------

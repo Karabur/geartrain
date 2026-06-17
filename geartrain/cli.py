@@ -191,6 +191,44 @@ def _run_engine_stop() -> None:
         print("Engine is not running")
 
 
+def _run_workflow_start(workflow_name: str = "geartrain-dev") -> None:
+    """Send a start request to the running engine and print the result."""
+    engine_path = Path.cwd() / ".geartrain" / "engines" / "local.engine.yaml"
+    try:
+        engine = load_engine(str(engine_path))
+        host = engine.host
+        port = engine.port
+    except FileNotFoundError:
+        host = "127.0.0.1"
+        port = 8420
+
+    try:
+        conn = http.client.HTTPConnection(host, port, timeout=600)
+        conn.request("POST", f"/workflows/{workflow_name}/start")
+        resp = conn.getresponse()
+        raw = resp.read()
+        conn.close()
+        data = json.loads(raw)
+
+        if resp.status == 404:
+            print(f"Error: {data.get('error', f'Unknown workflow: {workflow_name}')}")
+            sys.exit(1)
+        elif resp.status not in (200, 201):
+            print(f"Error: {data.get('error', 'Workflow start failed')}")
+            sys.exit(1)
+
+        status = data.get("status", "")
+        if status == "already_running":
+            print(f"Workflow is already running (run_id={data.get('current_run')})")
+        elif status == "no_tasks":
+            print(data.get("message", "No tasks found."))
+        else:
+            print(f"Workflow run completed: {data.get('run_id', '?')} — {status}")
+    except (ConnectionRefusedError, OSError):
+        print("Engine is not running. Start it with 'geartrain engine start'.")
+        sys.exit(1)
+
+
 # --- Parser -----------------------------------------------------------------
 
 
@@ -263,7 +301,8 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "workflow":
         if not args.workflow_action:
             parser.parse_args(["workflow", "-h"])
-        print(f"Workflow: {args.workflow_action}")
+        elif args.workflow_action == "start":
+            _run_workflow_start()
 
 
 if __name__ == "__main__":
