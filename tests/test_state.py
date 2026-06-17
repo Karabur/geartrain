@@ -346,18 +346,22 @@ class TestGenerateRunId:
         assert len(parts) >= 4  # date parts + workflow + seq
 
     def test_increments_sequence(self, tmp_path: Path):
+        from datetime import datetime, timezone
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         runs_dir = tmp_path / "runs"
         runs_dir.mkdir()
-        (runs_dir / "2026-06-16-geartrain-dev-001").mkdir()
-        (runs_dir / "2026-06-16-geartrain-dev-002").mkdir()
+        (runs_dir / f"{today}-geartrain-dev-001").mkdir()
+        (runs_dir / f"{today}-geartrain-dev-002").mkdir()
 
         rid = generate_run_id("geartrain-dev", state_path=tmp_path)
         assert rid.endswith("-geartrain-dev-003")
 
     def test_ignores_other_workflows(self, tmp_path: Path):
+        from datetime import datetime, timezone
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         runs_dir = tmp_path / "runs"
         runs_dir.mkdir()
-        (runs_dir / "2026-06-16-other-flow-005").mkdir()
+        (runs_dir / f"{today}-other-flow-005").mkdir()
 
         rid = generate_run_id("geartrain-dev", state_path=tmp_path)
         assert rid.endswith("-geartrain-dev-001")
