@@ -342,7 +342,7 @@ For the MVP, the system is simplified:
 |---------|-----|--------|
 | Memory/KB separation | Single git-backed markdown store with `system` tag | Separate storage and interfaces |
 | Workspace memory | Markdown files with YAML frontmatter in `.geartrain/memory/workspace/` | Dual-format with vector store |
-| Workflow memory | Markdown files for reusable workflow memory, run summaries, and active run state where useful | Persistent, queryable workflow state and dual-format memory |
+| Workflow memory | Markdown files for reusable workflow memory, run summaries, and active run state where useful | Persistent, queryable run history and dual-format memory |
 | Agent-instance memory | Plain text context captured in file-backed workflow run state where useful | Persistent with promotion |
 | Agent-level memory | Markdown files scoped by agent type in `.geartrain/memory/agent-types/` | Dual-format with cross-project sync |
 | Knowledge base | Markdown files in project docs | Structured KB with versioning |

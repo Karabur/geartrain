@@ -14,6 +14,7 @@ Expose memory as agent tools.
 
 - Add `memory_read`, `memory_write`, `kb_read`, `kb_write`.
 - `cli` agents get memory injected as prompt text (no live write); `langchain` agents get live tools.
+- Return enough metadata for Phase 7 memory events: scope, entry path, source run, source node, source agent, review status, and guardrail result.
 
 ## Requirements
 
@@ -22,3 +23,4 @@ Expose memory as agent tools.
 ## Acceptance Criteria
 
 - Tests: a langchain agent writes a memory; a later run retrieves it.
+- Tests assert read, write, and rejected write results expose event-friendly metadata.

@@ -1,10 +1,10 @@
 # GearTrain Roadmap
 
-MVP is the dogfooding milestone: the GearTrain team can clone the repo, run the feature-development workflow, and get a working PR. The MVP is delivered as a set of phases. Each phase covers one module and stands on its own. Phases 1-3 deliver the first runnable version of GearTrain; phases 1-8 deliver the MVP.
+MVP is the dogfooding milestone: the GearTrain team can clone the repo, run the feature-development workflow, and get a working PR. The MVP is delivered as a set of phases. Each phase covers one module and stands on its own. Phases 1-3 deliver the first runnable version of GearTrain; phases 1-8 deliver the MVP. Phase 9 is post-MVP UI and dashboards.
 
 Tasks live as markdown files in `work/todo|in-progress|done/`. Each task's `phase` frontmatter field ties it to a phase here. The folder is the task state; this file is the grouping and order. Linear and other external trackers are not used.
 
-Cross-cutting decisions: `geartrain validate` checks every MVP config file (workspace, engine, agent, workflow, memory). The CLI shape is `geartrain <module> <command>` or `geartrain <global-command>`. Workflow error handling is log-and-stop. Memory is plain markdown files as the single source of truth, edited by humans and agents. Agent sandboxing is out of scope but a no-op sandbox layer keeps the architecture ready for it.
+Cross-cutting decisions: `geartrain validate` checks every MVP config file (workspace, engine, agent, workflow, memory). The CLI shape is `geartrain <module> <command>` or `geartrain <global-command>`. Workflow execution is run-based: workflow definitions are recipes, while runs own node state, attempts, checkpoints, and append-only events. Workflow error handling is log-and-stop. Memory is plain markdown files as the single source of truth, edited by humans and agents. Agent sandboxing is out of scope but a no-op sandbox layer keeps the architecture ready for it.
 
 ## Phase 1: Engine Foundation & Config
 
@@ -75,16 +75,16 @@ A workflow can create a branch, commit changes, open a PR, and read/update issue
 - `GT-P6-03` Expose GitHub as Tools and Integration Node
 - `GT-P6-04` Add GitHub Integration Tests
 
-## Phase 7: Web UI
+## Phase 7: Run Observability Architecture
 
-A minimal local web UI shows workflow state, handles human checkpoints, and browses memory.
+The engine exposes run-based observability without shipping dashboards. This phase makes runs, node runs, attempts, checkpoints, errors, timings, tool calls, and memory updates queryable and streamable. The MVP output is a minimal human-facing log plus a structured event log.
 
-- `GT-P7-01` Implement Web API Endpoints
-- `GT-P7-02` Implement WebSocket State Updates
-- `GT-P7-03` Scaffold React + Vite App
-- `GT-P7-04` Build Dashboard and Workflow Detail Pages
-- `GT-P7-05` Build Checkpoint Page
-- `GT-P7-06` Build Memory Browser Page
+- `GT-P7-01` Implement Run Query API Endpoints
+- `GT-P7-02` Implement Run Event Streaming
+- `GT-P7-03` Record Tool Call Events
+- `GT-P7-04` Record Memory Update Events
+- `GT-P7-05` Add Error, Timing, and Event Log Summaries
+- `GT-P7-06` Add Observability Contract Tests
 
 ## Phase 8: Dogfooding (MVP)
 
@@ -96,3 +96,14 @@ The GearTrain team can clone the repo, run the feature-development workflow, and
 - `GT-P8-04` Run End-to-End Dogfooding to a PR
 - `GT-P8-05` Add Critical-Path Integration Tests
 - `GT-P8-06` Write Setup, User, and Contributor Docs
+
+## Phase 9: UI and Dashboards (post-MVP)
+
+A local web UI makes GearTrain runs inspectable and comfortable to operate. It reads the run APIs and event streams built in Phase 7.
+
+- `GT-P9-01` Scaffold React + Vite App
+- `GT-P9-02` Build Workflow and Run Dashboards
+- `GT-P9-03` Build Checkpoint Page
+- `GT-P9-04` Build Memory Browser Page
+- `GT-P9-05` Build Tool Call and Memory Update Inspectors
+- `GT-P9-06` Add UI Smoke and Accessibility Tests

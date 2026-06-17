@@ -25,7 +25,7 @@ The architecture isn't just an organizational choice — it produces concrete ad
 
 **Extensible, vendor-agnostic tooling.** Tools are defined once in GearTrain's registry and available to any agent regardless of the underlying LLM or agent framework. Teams build and share tool sets without coupling them to a specific provider. When a new model or SDK shows up, existing tools work without rewriting.
 
-**Rich automatic context.** Agents receive structured context about their running environment (engine, team, integrations), the project they're working in (memory, knowledge base, conventions), and the specific task at hand (workflow state, upstream outputs, relevant history). This context is assembled automatically from GearTrain's layered configuration — agents don't hunt for it, and humans don't hand-assemble it.
+**Rich automatic context.** Agents receive structured context about their running environment (engine, team, integrations), the project they're working in (memory, knowledge base, conventions), and the specific task at hand (run state, upstream outputs, relevant history). This context is assembled automatically from GearTrain's layered configuration — agents don't hunt for it, and humans don't hand-assemble it.
 
 **Deterministic runtime control.** GearTrain handles repeatable execution behavior in the engine instead of asking the LLM to decide every time. Tool retries, timeout handling, fallback paths, and escalation rules can be defined once in workflow configuration. This saves tokens and makes failures easier to reason about because control flow is explicit, not hidden inside a model response.
 

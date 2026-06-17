@@ -14,6 +14,7 @@ Add `shell_exec` (via the sandbox) and git operation tools.
 
 - Implement `shell_exec` routed through the no-op sandbox.
 - Implement git status/diff/commit/branch helpers.
+- Return enough metadata for Phase 7 tool-call events.
 
 ## Requirements
 
@@ -22,3 +23,4 @@ Add `shell_exec` (via the sandbox) and git operation tools.
 ## Acceptance Criteria
 
 - Tests: an agent runs a command and inspects git status against a temp repo.
+- Tests assert success and failure results expose event-friendly metadata.

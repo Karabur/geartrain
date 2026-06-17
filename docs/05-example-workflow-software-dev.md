@@ -23,7 +23,7 @@ The software development workflow is not a single pipeline but a family of inter
 
 **Trigger:** Manual (developer starts it) or event (issue assigned in tracker)
 **Engine:** Developer's local workstation
-**Channels:** Web UI (MVP), Slack (deferred)
+**Channels:** CLI/API checkpoints (MVP), Web UI (post-MVP), Slack (deferred)
 
 ```
 ┌──────────┐     ┌──────────────┐     ┌───────────┐     ┌──────────┐
@@ -100,10 +100,10 @@ The software development workflow is not a single pipeline but a family of inter
 
 | Point | Type | When | Channel |
 |-------|------|------|---------|
-| Plan review | Approval + Input | After team lead produces plan | Web UI |
-| Clarification | Input | When coder or team lead needs context | Web UI |
-| PR review | Review | After automated review, before merge | GitHub + Web UI |
-| Conflict resolution | Choice | When agents disagree or are stuck | Web UI |
+| Plan review | Approval + Input | After team lead produces plan | CLI/API checkpoint |
+| Clarification | Input | When coder or team lead needs context | CLI/API checkpoint |
+| PR review | Review | After automated review, before merge | GitHub + CLI/API checkpoint |
+| Conflict resolution | Choice | When agents disagree or are stuck | CLI/API checkpoint |
 
 ---
 
@@ -148,7 +148,7 @@ For MVP, this workflow is simplified to: manual trigger → reviewer agent reads
 
 **Trigger:** Schedule (daily/weekly) or manual
 **Engine:** Developer workstation or dedicated server
-**Channels:** Web UI, Slack [deferred]
+**Channels:** CLI/API checkpoints, Web UI [post-MVP], Slack [deferred]
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
@@ -161,7 +161,7 @@ For MVP, this workflow is simplified to: manual trigger → reviewer agent reads
 #### What the Planning Agent Does
 - Reads project memory: current sprint goals, timeline, scope
 - Reads issue tracker: open tasks, velocity, blockers, bug count
-- Reads workflow history: recent completions, failure patterns
+- Reads run history: recent completions, failure patterns, event logs, and timing summaries
 - Generates a structured report: progress, risks, recommendations
 - Presents to human for review and action
 
@@ -215,7 +215,7 @@ The first concrete workflow instance is GearTrain developing itself. This create
 1. Developer selects a task (from docs or issue tracker)
 2. Starts the workflow: `geartrain run feature-development --task "implement memory store"`
 3. Team lead agent reads the task, reads project memory, produces a plan
-4. Developer reviews and approves plan (web UI)
+4. Developer reviews and approves plan through a checkpoint
 5. Coder agent implements the feature
 6. QA agent runs tests
 7. Reviewer agent reviews the diff
@@ -226,6 +226,7 @@ The first concrete workflow instance is GearTrain developing itself. This create
 ### What We Learn by Dogfooding
 - Is the workflow definition format expressive enough?
 - Are human checkpoints at the right granularity?
+- Do run events make failures and slow steps easy to diagnose without a dashboard?
 - Does project memory actually help agents make better decisions?
 - Where do agents get stuck and need better tools?
 - What's the overhead of the framework vs. just using Claude Code directly?

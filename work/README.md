@@ -43,7 +43,7 @@ Filenames are prefixed `p<phase>-<nn>-<slug>.md` so filename sort matches phase 
 
 ## Phases
 
-The MVP (the dogfooding milestone) is delivered as eight phases, each covering one module. Phases 1-3 deliver the first runnable version; phases 1-8 deliver the MVP. See [ROADMAP.md](ROADMAP.md) for the full breakdown.
+The MVP (the dogfooding milestone) is delivered as eight phases, each covering one module. Phases 1-3 deliver the first runnable version; phases 1-8 deliver the MVP. Phase 9 is post-MVP UI and dashboards. See [ROADMAP.md](ROADMAP.md) for the full breakdown.
 
 ## Operating Rules
 

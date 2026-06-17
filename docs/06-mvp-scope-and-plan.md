@@ -10,12 +10,14 @@ At minimum, a developer should be able to:
 1. Define agents (team lead, coder, reviewer) via YAML — no Python required
 2. Define a feature development workflow via YAML
 3. Run the workflow on their local machine
-4. Interact with the workflow (approve plans, provide input) via a local web UI
+4. Interact with the workflow through CLI/API human checkpoints
 5. Have agents read from and write to project memory (markdown-based)
 6. Have agents create a GitHub PR at the end of a successful run
-7. Inspect workflow state and history
+7. Inspect run state, event history, errors, timings, tool calls, and memory updates through logs, CLI, and API
 
 The MVP ships two agent types behind one abstraction. A `cli` agent runs an external CLI tool headless and one-shot (default `codex exec`); a `langchain` agent runs inside GearTrain on LangChain/LangGraph. From the workflow's side they're identical — a node that takes a task and returns plain text — so a developer chooses the type per agent and the workflow doesn't change. The first runnable version uses the `cli` type because a subprocess that returns text is the fastest path to a working loop; see [../work/ROADMAP.md](../work/ROADMAP.md) for the phase breakdown and [../work/SPEC.md](../work/SPEC.md) for the runnable version's detailed contract.
+
+Workflow execution is run-based. Workflow definitions are reusable recipes; each execution creates a run with node runs, attempts, checkpoints, and append-only events. The MVP uses that state for logs, APIs, and CLI inspection. Full dashboards are post-MVP.
 
 For MVP, GearTrain must ship with its own working workspace definition in the repo. That workspace is the first real product configuration: the local engine loads it by default and uses it to run GearTrain's own development workflow.
 
@@ -35,10 +37,10 @@ The MVP should not require team accounts, user management, hosted authentication
 | **Workflow Layer** | LangGraph-based workflows defined via YAML. Sequential and branching flows, agent steps, decision nodes, human checkpoints. Workflow definitions stored in the workspace folder. | Sub-workflows, parallel execution, complex conditional logic, loop constructs. |
 | **Workflow Registry** | File-system-based registry inside the workspace directory. List, validate, run. | Internal versioning service, migration engine, UI-based editing. Git history is the MVP version history. |
 | **Team Layer** | Single repo workspace config via YAML. LLM provider/model defaults, GitHub integration, memory namespace. LLM provider connections and CLI agent credentials stay engine-scoped; each user sets up their own local credentials. | Multi-team, user roles, access control, UI-based team management. Team-level per-user LLM/CLI credential provisioning. |
-| **Engine** | Local engine, single-workflow execution. File-backed markdown state under the workspace. | SQLite/PostgreSQL state backends, cloud engine, serverless, concurrent workflows, scheduling. |
+| **Engine** | Local engine, single-workflow execution. File-backed run state under the workspace: runs, node runs, attempts, checkpoints, and append-only events. | SQLite/PostgreSQL state backends, cloud engine, serverless, concurrent workflows, scheduling, queues, replay. |
 | **Context Assembly** | A simple context builder with explicit sections for task input, agent instructions, prior outputs, selected memory, selected docs, and tool instructions. Used to build both in-process prompts and the prompt handed to `cli` agents. | Semantic RAG, prompt compression, dynamic tool schema selection, off-transcript helper calls. |
-| **Channels** | Local web UI (React) for workflow monitoring, HIL checkpoints, and memory inspection. Basic CLI for starting/stopping workflows. | Slack, Telegram, email channels. |
-| **Memory & Knowledge** | Git-backed markdown files with YAML frontmatter. Workspace memory, workflow memory, agent-type memory, and workflow run state are persistent files where useful. Knowledge base as project docs. Keyword-based search. Memory read/write as agent tools. | Dual-format with vector store, semantic search, memory database, automated memory promotion, memory/KB separation in storage, dreaming, guardrail LLM classification. |
+| **Channels** | CLI and HTTP API for starting workflows, resolving checkpoints, inspecting runs, and printing event logs. | React dashboard, Slack, Telegram, email channels. |
+| **Memory & Knowledge** | Git-backed markdown files with YAML frontmatter. Workspace memory, workflow memory, agent-type memory, and workflow run state are persistent files where useful. Knowledge base as project docs. Keyword-based search. Memory read/write as agent tools. Memory updates emit run events. | Dual-format with vector store, semantic search, memory database, automated memory promotion, memory/KB separation in storage, dreaming, guardrail LLM classification. |
 | **Integrations** | GitHub (PR creation, issue read/update). | Slack, Linear, Sentry, AWS, all others. |
 | **Guardrails** | Regex-based secret detection on memory writes. File path restrictions per agent for `langchain` agents; `cli` agents rely on the CLI's own sandbox/approval mode. | LLM-based classification, cost guardrails, comprehensive PII detection. |
 
@@ -47,10 +49,11 @@ The MVP should not require team accounts, user management, hosted authentication
 These are important but not required for the dogfooding milestone:
 
 - **No-code workflow editor UI** — workflows are YAML for MVP; visual editor is a fast follow
+- **Dashboards and React UI** — the MVP exposes run/event APIs and logs, but the web UI is post-MVP
 - **Multi-team support** — one git-backed workspace is sufficient for dogfooding
 - **User accounts and authentication** — local engine trusts the developer running it; GitHub handles repository access and PR identity
 - **Cloud execution** — local engine only
-- **Slack/Telegram/Email channels** — web UI only
+- **Slack/Telegram/Email channels** — CLI/API only for MVP
 - **Agent instance memory persistence** — in-process only, discarded after run
 - **Memory vector store** — keyword search is sufficient for small memory sets
 - **Advanced context optimization** — precise semantic RAG, dynamic tool discovery, prompt compression, and off-transcript helper calls are planned, but the MVP only needs context-assembly interfaces that don't block them
@@ -91,10 +94,10 @@ These are important but not required for the dogfooding milestone:
 
 Fast follow: add interactive, user-controlled IDE/CLI agents for coding workflows. In that mode, the engine waits for an external IDE or CLI agent connection instead of spawning a one-shot process, exposes task context through MCP or a similar local protocol, and resumes the workflow when the external agent submits results.
 
-### 6. Minimal Web UI
-**Decision:** The web UI shows workflow state, handles HIL checkpoints, and allows memory browsing. No drag-and-drop, no visual editor, no advanced analytics.
-**Why:** The UI is not the product — the workflow engine is. A functional but minimal UI is sufficient for dogfooding. Polish comes later.
-**Risk:** Poor UX may discourage usage. Mitigation: make the UI functional and fast, even if not beautiful.
+### 6. Run-Based Observability Before Dashboards
+**Decision:** The MVP ships run state, append-only events, event logs, run APIs, checkpoint APIs, and CLI inspection before it ships a React dashboard.
+**Why:** Dashboards are only useful when the engine has reliable execution facts to show. A run-based model makes workflow history, failure debugging, human checkpoints, tool calls, memory updates, and future replay part of the architecture instead of UI-only reconstruction.
+**Risk:** The MVP is less comfortable without a UI. Mitigation: keep CLI/API inspection direct, write a readable workflow summary log, and write a structured event log for every run.
 
 ### 7. GitHub-Only Integration
 **Decision:** GitHub is the only external integration for MVP.
@@ -116,12 +119,11 @@ Fast follow: add interactive, user-controlled IDE/CLI agents for coding workflow
 | Workflow orchestration | LangGraph (Python) | Native LangChain integration with file-backed MVP state |
 | Workflow/agent definitions | YAML | Human-readable, no-code, easy to validate |
 | Configuration parsing | Pydantic | YAML → validated Python objects |
-| State persistence | Markdown files | Easy to inspect, manually edit, and evolve while the state shape is still changing |
+| State persistence | Markdown files + JSONL event logs | Markdown stays inspectable; JSONL gives the CLI, API, and future UI an append-only timeline |
 | Workspace storage | Git repo folder | Shared definitions, memory, and review through normal development flow |
 | Memory (MVP) | Markdown files + file-system | Simple, human-editable, git-reviewable, swappable later |
 | Context assembly | Internal builder module | One place to add prompt budgeting, precise RAG, compression, dynamic tools, and off-transcript helper calls later |
 | CLI agent runner | Python `subprocess` wrapper | Runs `codex exec` headless, captures plain text; configurable command per agent/engine |
-| Web UI | React + Vite | Fast development, component ecosystem |
 | API layer | FastAPI | Async-native, auto-generated OpenAPI docs |
 | CLI | Click (Python) | Standard Python CLI framework |
 | GitHub integration | PyGithub or GitHub REST API | PR creation, issue management |
@@ -131,7 +133,7 @@ Fast follow: add interactive, user-controlled IDE/CLI agents for coding workflow
 
 ## Implementation Plan (Phases)
 
-The MVP is the dogfooding milestone, delivered as eight phases. Each phase covers one module and stands on its own. Phases 1-3 deliver the first runnable version of GearTrain; phases 1-8 deliver the MVP. The full task breakdown lives in [../work/ROADMAP.md](../work/ROADMAP.md); the runnable version's detailed contract is in [../work/SPEC.md](../work/SPEC.md).
+The MVP is the dogfooding milestone, delivered as eight phases. Each phase covers one module and stands on its own. Phases 1-3 deliver the first runnable version of GearTrain; phases 1-8 deliver the MVP. Phase 9 is post-MVP UI and dashboards. The full task breakdown lives in [../work/ROADMAP.md](../work/ROADMAP.md); the runnable version's detailed contract is in [../work/SPEC.md](../work/SPEC.md).
 
 **Phase 1 — Engine Foundation & Config.** The engine starts, loads and validates every MVP config file (workspace, engine, agent, workflow, memory), writes file-backed state, and serves a local HTTP API. Includes `geartrain validate` and a no-op sandbox layer so a real sandbox can drop in later.
 
@@ -145,21 +147,23 @@ The MVP is the dogfooding milestone, delivered as eight phases. Each phase cover
 
 **Phase 6 — GitHub Integration.** Branch, commit, and PR creation, issue read/update, exposed as agent tools and backing the `integration` node.
 
-**Phase 7 — Web UI.** A minimal React + Vite app over FastAPI endpoints with WebSocket updates: dashboard, workflow detail, human checkpoint, and memory browser.
+**Phase 7 — Run Observability Architecture.** Run query APIs, event streaming, tool-call events, memory-update events, error/timing summaries, and observability contract tests. The MVP outcome is a readable workflow log plus a structured event log, not a dashboard.
 
 **Phase 8 — Dogfooding (MVP).** The full agent set (team-lead, coder, qa, reviewer), the `feature-development` workflow, seeded project memory, an end-to-end run that produces a PR, integration tests, and setup docs. A developer can clone the repo, run `geartrain workflow start`, and get a working PR out.
+
+**Phase 9 — UI and Dashboards (post-MVP).** A local React + Vite UI over the run APIs and event streams: run dashboard, workflow detail, checkpoint page, memory browser, tool-call and memory-update inspectors, and observability dashboards. See [09-ui-and-observability.md](09-ui-and-observability.md).
 
 ## Risk Register
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| File-backed workflow state doesn't support the workflow patterns needed | Medium | High | Prototype the workflow engine in Phase 3; fall back to a small custom state index or SQLite if markdown files become limiting |
+| File-backed run state doesn't support the workflow patterns needed | Medium | High | Prototype run state, attempts, checkpoints, and append-only events before dogfooding; fall back to a small custom state index or SQLite if markdown plus JSONL become limiting |
 | Agent quality is too low to produce usable code | High | Medium | Start with small, well-scoped tasks; focus on the coordination value, not agent autonomy |
 | YAML schema becomes unwieldy | Medium | Low | Keep schemas flat and well-documented; visual editor is the real solution |
 | GitHub integration is flaky | Low | Medium | Robust error handling and retry logic; human can always complete GitHub steps manually |
 | Two agent runners diverge or the abstraction leaks | Medium | Medium | Keep the interface to `run(task, context) -> str`; ship `cli` first, add `langchain` against the same interface; cover both with the same workflow tests |
 | Subscription-auth cost benefit disappears (vendor policy) | Medium | Low | Don't assume it; `cli` nodes are swappable for API-billed `langchain` nodes without workflow changes |
-| Scope is too large for the available time | High | High | Phases are ordered so phases 1-3 already yield a runnable version. Cut UI polish, cut reviewer agent, cut QA agent. Minimum viable: team-lead + coder + human checkpoints + GitHub PR |
+| Scope is too large for the available time | High | High | Phases are ordered so phases 1-3 already yield a runnable version. Dashboards are post-MVP. Cut reviewer agent or QA agent before cutting run events, because events are the debugging surface. Minimum viable: team-lead + coder + human checkpoints + GitHub PR |
 
 ---
 
@@ -173,6 +177,7 @@ If the timeline is too aggressive, this is the bare minimum to demonstrate the c
 4. **Memory** (markdown files, read-only by agents — human writes memory manually)
 5. **CLI only** (no web UI — human checkpoints via terminal prompts)
 6. **GitHub PR creation** (the one integration)
+7. **Run event log** (`events.jsonl` plus a readable summary log for every run)
 
 This is roughly phases 1-3 plus a single GitHub PR step, and would prove the architecture works even if it's not comfortable to use. The `langchain` agent type (Phase 4) can follow once the loop holds.
 
@@ -188,5 +193,5 @@ This is roughly phases 1-3 plus a single GitHub PR step, and would prove the arc
 6. **Workflow error handling** — **Resolved for MVP (log-and-stop).** On node or agent failure, the engine logs the error to run state and the workflow log, marks the run failed, releases the lock, and stops. No retry, skip, or escalation in the MVP.
 7. **LLM provider failover** — if the primary LLM provider is down, can agents fail over to an alternative? How is this configured?
 8. **Workflow composability** — how do sub-workflows share state with parent workflows? What's the data contract?
-9. **Observability** — what telemetry does the engine emit? OpenTelemetry? Custom format?
+9. **Observability export** — MVP emits GearTrain run events. OpenTelemetry export can come later.
 10. **Upgrade path** — when a workflow definition changes, what happens to in-flight runs? Complete with old definition? Migrate?

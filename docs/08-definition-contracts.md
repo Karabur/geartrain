@@ -25,7 +25,7 @@ The first validator should not call LLM providers or external services. It shoul
 | Agent definition | `.geartrain/agents/*.agent.yaml` | Reusable agent role, model hints, tools, prompts, guardrails |
 | Workflow definition | `.geartrain/workflows/*.workflow.yaml` | Directed workflow graph with agent, decision, checkpoint, integration, and memory nodes |
 | Memory entry | `.geartrain/memory/**/*.md` | Human-readable memory or knowledge entry with frontmatter |
-| Run state | `.geartrain/state/runs/**/*.md` | File-backed workflow state, node outputs, and human responses |
+| Run state | `.geartrain/state/runs/**/*` | File-backed run metadata, node runs, attempts, checkpoints, and append-only events |
 
 ## Shared Rules
 
@@ -406,17 +406,24 @@ Node inputs and outputs are plain text for MVP.
 
 People should be able to create workflows by writing YAML and prompts. They should not need to write Pydantic models or define detailed output schemas in a UI. The output shape is controlled by the agent's system prompt and action instructions.
 
-The engine stores each node response as markdown in run state:
+The engine stores each node response as markdown in run-owned state:
 
 ```text
 .geartrain/state/
 └── runs/
     └── 2026-05-28-feature-development-001/
         ├── run.md
-        ├── 01-intake.md
-        ├── 02-approve-plan.md
-        ├── 03-implement.md
-        └── 04-review.md
+        ├── events.jsonl
+        ├── nodes/
+        │   ├── 01-intake.md
+        │   ├── 02-approve-plan.md
+        │   ├── 03-implement.md
+        │   └── 04-review.md
+        ├── attempts/
+        │   ├── attempt-000001.md
+        │   └── attempt-000002.md
+        └── checkpoints/
+            └── checkpoint-000001.md
 ```
 
 Validation rules:
@@ -433,6 +440,172 @@ Deferred:
 - UI-defined output fields.
 - Strict structured output validation.
 - Natural-language output validators.
+
+## Run State Contract
+
+Workflow definitions are recipes. Runs are executions. The engine stores every execution as a run directory.
+
+### `run.md`
+
+`run.md` is the human-readable summary and current state for one run.
+
+Required frontmatter:
+
+```yaml
+schema_version: 1
+run_id: 2026-06-17-feature-development-001
+workflow: feature-development
+workflow_version: 0.1.0
+workflow_hash: sha256-placeholder
+status: running
+created_at: 2026-06-17T18:20:00Z
+started_at: 2026-06-17T18:20:01Z
+finished_at:
+current_node: implement
+task_path: work/in-progress/p4-01-implement-langchain-agent-runner.md
+error:
+```
+
+Validation rules:
+
+- `status` must be `created`, `running`, `waiting`, `completed`, `failed`, or `canceled`.
+- `run_id` must be unique under `.geartrain/state/runs/`.
+- `workflow` must reference a known workflow definition.
+- `current_node`, when set, must reference a node in the workflow definition.
+- `task_path`, when set, must stay inside the repo.
+
+### Node Run Files
+
+Node run files live under `nodes/`.
+
+Required frontmatter:
+
+```yaml
+schema_version: 1
+node_id: implement
+node_type: agent
+status: completed
+agent: coder
+attempts:
+  - attempt-000002
+started_at: 2026-06-17T18:21:00Z
+finished_at: 2026-06-17T18:24:00Z
+duration_ms: 180000
+output_key: changes
+error:
+```
+
+Validation rules:
+
+- `status` must be `pending`, `running`, `waiting`, `completed`, `failed`, or `skipped`.
+- `node_id` must reference a node in the workflow definition.
+- `agent`, when set, must reference a known agent.
+
+### Attempt Files
+
+Attempt files live under `attempts/`.
+
+Required frontmatter:
+
+```yaml
+schema_version: 1
+attempt_id: attempt-000002
+node_id: implement
+status: completed
+agent: coder
+runner_type: cli
+started_at: 2026-06-17T18:21:00Z
+finished_at: 2026-06-17T18:24:00Z
+duration_ms: 180000
+error:
+```
+
+The runnable version creates one attempt per executable node. Retries are deferred, but future retries add more attempt files without changing the node contract.
+
+### Checkpoint Files
+
+Checkpoint files live under `checkpoints/`.
+
+Required frontmatter:
+
+```yaml
+schema_version: 1
+checkpoint_id: checkpoint-000001
+node_id: approve-plan
+mode: approval
+status: pending
+created_at: 2026-06-17T18:20:30Z
+resolved_at:
+response:
+```
+
+Validation rules:
+
+- `mode` must be `approval` or `input`.
+- `status` must be `pending`, `resolved`, `rejected`, or `timed_out`.
+- Resolved checkpoints must include `resolved_at` and response text.
+
+## Event Log Contract
+
+Each run has an append-only `events.jsonl` file. Each line is one JSON object.
+
+Required fields:
+
+```json
+{
+  "schema_version": 1,
+  "event_id": "evt-000001",
+  "run_id": "2026-06-17-feature-development-001",
+  "type": "node.started",
+  "created_at": "2026-06-17T18:21:00Z",
+  "workflow": "feature-development",
+  "node_id": "implement",
+  "attempt_id": "attempt-000002",
+  "checkpoint_id": null,
+  "tool_call_id": null,
+  "memory_entry": null,
+  "level": "info",
+  "message": "Started implement node",
+  "data": {}
+}
+```
+
+Required event types for MVP architecture:
+
+- `run.created`
+- `run.started`
+- `run.completed`
+- `run.failed`
+- `lock.acquired`
+- `lock.released`
+- `node.started`
+- `node.completed`
+- `node.failed`
+- `attempt.started`
+- `attempt.completed`
+- `attempt.failed`
+- `agent.started`
+- `agent.completed`
+- `agent.failed`
+- `checkpoint.created`
+- `checkpoint.resolved`
+- `tool.started`
+- `tool.completed`
+- `tool.failed`
+- `memory.read`
+- `memory.write`
+- `memory.write_rejected`
+
+The runnable version must emit the lifecycle, lock, node, attempt, agent, checkpoint, and error events it uses. Tool and memory events become active when those systems land.
+
+Validation rules:
+
+- Events are append-only.
+- `event_id` is unique within a run.
+- `run_id` must match the containing run directory.
+- `type` must be from the known event registry.
+- Timestamps must be ISO 8601 strings.
+- `level` must be `debug`, `info`, `warning`, or `error`.
 
 ## Memory Entry Frontmatter
 
@@ -461,7 +634,7 @@ Validation rules:
 
 - `system` must be `memory` or `knowledge_base`.
 - `scope` must be `workspace`, `workflow`, `agent_instance`, or `agent_level`.
-- Persistent MVP files may not use `agent_instance`; that scope lives in workflow state.
+- Persistent MVP files may not use `agent_instance`; that scope lives in run state.
 - `review_status` must be `pending`, `approved`, `rejected`, or `edited`.
 - Agent-level memory must include `agent_type`.
 - Content must pass the secret-pattern guard before write.
@@ -507,7 +680,8 @@ The first implementation should prove this contract with no LLM calls:
 2. Validate all agent and workflow YAML files.
 3. Run `feature-development` with mock agent outputs.
 4. Pause at a CLI human checkpoint.
-5. Persist workflow state as markdown files under `.geartrain/state/runs/`.
-6. Print the final run summary.
+5. Persist run state as markdown files under `.geartrain/state/runs/`.
+6. Persist run events as `events.jsonl`.
+7. Print the final run summary and the run event log path.
 
 After that works, replace mock agent nodes with real execution — the `cli` runner first (default `codex exec`), then `langchain`.

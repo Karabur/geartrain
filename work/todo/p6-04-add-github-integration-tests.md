@@ -13,6 +13,7 @@ Cover the integration path without hitting GitHub.
 ## Scope
 
 - Mocked end-to-end: a workflow node opens a PR and updates an issue.
+- Verify integration node events, tool-call events, and failure summaries.
 
 ## Requirements
 

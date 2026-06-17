@@ -283,6 +283,20 @@ Team-scoped catalog of workflow definitions. Tracks:
 - Execution history and metrics
 - Template workflows (shareable across teams, future)
 
+### Run-Based Execution
+
+Workflow definitions are reusable recipes. A run is one execution of a workflow definition against one task or trigger payload. The engine treats runs as first-class objects because every channel, API, log, dashboard, and future replay feature needs the same execution record.
+
+Run-owned state includes:
+
+- Run metadata: status, input, task path, started/finished timestamps, current node, definition hashes, and terminal error.
+- Node runs: one record per workflow node in the run.
+- Attempts: one try at executing a node or agent. MVP uses one attempt per node, but the model supports retries later.
+- Checkpoints: human approval or input waits owned by the run.
+- Events: append-only timeline entries for lifecycle, errors, tool calls, memory updates, and integration steps.
+
+The event stream is the debugging source of truth. Summary files can be rebuilt from events if needed.
+
 ---
 
 ## Layer 3: Teams
@@ -349,7 +363,7 @@ state:
 ## Layer 4: Engine
 
 ### Responsibility
-Runtime environment that executes workflows. Manages state, scheduling, concurrency, and resource allocation.
+Runtime environment that executes workflows. Manages run state, events, scheduling, concurrency, and resource allocation.
 
 ### Engine Types
 
@@ -360,16 +374,16 @@ Runtime environment that executes workflows. Manages state, scheduling, concurre
 | Serverless Engine | Cloud functions | Event-driven, stateless workflows | Deferred |
 
 ### Engine Capabilities
-- **State Management:** Persists workflow state across interruptions. MVP state is file-backed markdown under the workspace; SQLite and stronger checkpointing can come later.
+- **Run State Management:** Persists runs, node runs, attempts, checkpoints, and append-only events. MVP state is file-backed markdown plus JSONL event logs under the workspace; SQLite and stronger checkpointing can come later.
 - **Concurrency:** Runs multiple workflow instances; manages agent resource contention
 - **Scheduling:** Cron-like triggers for periodic workflows
 - **Deterministic Tool Control:** Applies configured tool retries, timeouts, fallback paths, and escalation rules outside the LLM loop
 - **Failure Handling:** Routes bad outputs, agent mistakes, external API failures, repeated LLM call failures, and invalid tool results through configured repair, retry, fallback, or human-escalation paths
 - **Model Routing:** Resolves per-agent and per-action model choices so workflows can spend stronger models where they matter and cheaper models where they are enough
-- **Context Assembly:** Builds compact per-call prompts from workflow state, selected memory, selected knowledge, prior outputs, and agent instructions
+- **Context Assembly:** Builds compact per-call prompts from run state, selected memory, selected knowledge, prior outputs, and agent instructions
 - **Dynamic Tool Exposure:** Exposes only the tool schemas relevant to the current step, while keeping larger tool catalogs available through registry lookup
-- **Health Monitoring:** Tracks active workflows, agent utilization, error rates
-- **Observability:** Captures token usage, cost, latency, tool usage, repeated invocations, retries, failed LLM calls, failed tool calls, and workflow outcomes
+- **Health Monitoring:** Tracks active runs, agent utilization, error rates
+- **Observability:** Captures run events, node timings, attempt timings, token usage, cost, latency, tool usage, memory updates, repeated invocations, retries, failed LLM calls, failed tool calls, and workflow outcomes
 - **Evals:** Runs workflow and agent behavior checks to detect drift, compare models, validate prompt changes, and support controlled model upgrades
 - **Hot Reload:** Picks up agent/workflow definition changes without restart
 - **Workspace Loading:** Loads the repo's default `.geartrain/workspace.yaml` unless a different workspace path is provided
@@ -436,8 +450,12 @@ logging:
   output: ./logs/
 
 observability:
-  traces: true
+  events: true
+  event_log: ./.geartrain/logs/events.jsonl
   metrics:
+    - run_outcomes
+    - node_timings
+    - attempt_timings
     - token_usage
     - cost
     - latency
@@ -464,7 +482,7 @@ The engine owns context assembly. Agents and workflows declare what they need; t
 
 Core requirements:
 - **Prompt budgets:** Agents, workflow nodes, and model routes can define target context budgets.
-- **Scoped prompt sections:** System instructions, task input, workflow state, prior outputs, memory, knowledge, and tool instructions remain separate until final prompt assembly.
+- **Scoped prompt sections:** System instructions, task input, run state, prior outputs, memory, knowledge, and tool instructions remain separate until final prompt assembly.
 - **Precise retrieval:** Memory and knowledge retrieval use metadata filters, scope rules, query rewriting where useful, top-k limits, source references, and relevance thresholds.
 - **Dynamic tools:** Agents can declare tool categories or capabilities. The engine resolves the concrete schemas at call time and avoids injecting every available tool.
 - **Off-transcript calls:** Planning, classification, retrieval query generation, tool selection, and output repair can run as helper calls whose intermediate transcripts don't enter the main agent context.
@@ -484,7 +502,7 @@ User-facing interaction points for running workflows. Each channel is a bidirect
 
 | Channel | Direction | Use Case | MVP Status |
 |---------|-----------|----------|------------|
-| Web UI | Bidirectional | Dashboard, workflow monitoring, HIL interaction | **In scope** (minimal) |
+| Web UI | Bidirectional | Dashboard, workflow monitoring, HIL interaction | Post-MVP |
 | Slack | Bidirectional | Team notifications, approvals, async communication | Deferred |
 | CLI | Input only | Developer command-line interaction | **In scope** (basic) |
 | Telegram | Bidirectional | Mobile-friendly interaction | Deferred |
@@ -568,9 +586,11 @@ Configurations use variable interpolation with scoped resolution:
 - [To be defined] Rollback mechanisms for workflow definitions
 
 ### Observability
-Observability is required for long-running agent workflows because failures can come from the model, the prompt, the tool, the external API, the workflow definition, or the surrounding runtime. GearTrain should emit structured traces and metrics for each workflow run, agent invocation, LLM call, and tool call.
+Observability is required for long-running agent workflows because failures can come from the model, the prompt, the tool, the external API, the workflow definition, or the surrounding runtime. GearTrain should emit structured run events first, then derive traces and metrics from them.
 
 Minimum telemetry:
+- Run lifecycle events, node lifecycle events, attempt lifecycle events, checkpoint events, tool-call events, memory-update events, and error events
+- Run status, current node, task path, definition hash, started/finished timestamps, and terminal error
 - Token usage and estimated cost by workflow, agent, model, and step
 - LLM call count, failed LLM calls, retries, latency, and response validation failures
 - Tool usage, failed tool calls, retries, timeouts, and fallback paths

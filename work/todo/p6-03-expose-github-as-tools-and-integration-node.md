@@ -5,7 +5,7 @@ status: todo
 depends_on: 
   - GT-P6-01
   - GT-P6-02
-  - GT-P3-03
+  - GT-P3-06
 ---
 
 # Expose GitHub as Tools and Integration Node
@@ -16,11 +16,12 @@ Wrap GitHub as agent tools and back the `integration` node type.
 
 - Wrap client calls as LangChain tools.
 - Implement the `integration` node (`service: github`).
+- Emit node, attempt, tool/integration, and error events through the run store.
 
 ## Requirements
 
-- Integration node produces plain text output stored in run state.
+- Integration node produces plain text output stored in run state and event metadata for observability.
 
 ## Acceptance Criteria
 
-- Tests run an integration node that opens a PR via the mocked client.
+- Tests run an integration node that opens a PR via the mocked client and records expected events.

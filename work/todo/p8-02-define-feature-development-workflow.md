@@ -16,6 +16,7 @@ Build the real MVP workflow: plan, approve, implement, review, and prepare a PR.
 
 - Nodes: intake -> approve_plan (human) -> implement -> review -> PR integration -> end.
 - Wire human checkpoints and the GitHub integration node.
+- Ensure the workflow emits useful run, node, attempt, checkpoint, tool, memory, and error events.
 
 ## Requirements
 
@@ -23,4 +24,4 @@ Build the real MVP workflow: plan, approve, implement, review, and prepare a PR.
 
 ## Acceptance Criteria
 
-- Workflow validates and runs end to end with mocked human input and a mocked GitHub client.
+- Workflow validates and runs end to end with mocked human input and a mocked GitHub client, with a complete event timeline.

@@ -14,6 +14,7 @@ Add `file_read`, `file_write`, and `project_search` (grep/glob) tools.
 
 - Implement the three tools as LangChain tools.
 - Route file access through the sandbox interface.
+- Return enough metadata for Phase 7 tool-call events: tool name, input summary, output summary, status, duration, and error summary.
 
 ## Requirements
 
@@ -22,3 +23,4 @@ Add `file_read`, `file_write`, and `project_search` (grep/glob) tools.
 ## Acceptance Criteria
 
 - Tests: an agent reads a file, writes a change, and searches the project.
+- Tests assert tool results expose event-friendly metadata.

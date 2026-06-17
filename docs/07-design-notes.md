@@ -106,7 +106,7 @@ The external agent should get context through a standard connection, most likely
 6. When the work is complete, the agent sends results back to the engine.
 7. The engine validates the result and continues the workflow.
 
-This enables high-involvement coding workflows: exploratory implementation, architecture-heavy changes, debugging sessions, and work that requires ongoing user guidance. GearTrain still owns the workflow state, memory, transitions, and validation, but the coding session can stay in the tool where the developer is most productive.
+This enables high-involvement coding workflows: exploratory implementation, architecture-heavy changes, debugging sessions, and work that requires ongoing user guidance. GearTrain still owns run state, memory, transitions, and validation, but the coding session can stay in the tool where the developer is most productive.
 
 The integration should be CLI-agent agnostic. GearTrain may detect installed agents and configure a local MCP or skill bridge automatically. If detection fails, it should provide manual setup instructions. After connection setup, the workflow contract should be the same for Claude Code, Codex, Cursor, other AI IDEs, or future local agent tools.
 
@@ -120,7 +120,7 @@ Open questions [to be defined]:
 - Result contract: diff, branch name, commit, PR, structured task report, or all of these
 - Ownership model: whether the external agent can write memory directly or only return proposed memory updates
 - Timeout and cancellation behavior while the workflow waits for an external connection
-- How autonomous-mode switching is represented in workflow state and audit history
+- How autonomous-mode switching is represented in run state and audit history
 
 ---
 
@@ -253,7 +253,7 @@ These workflows use the same building blocks as software development: agents, me
 ### The Strategy
 The memory system is explicitly designed to evolve through three phases without breaking the agent-facing interface:
 
-**Phase 1 (MVP):** Git-backed markdown files with keyword search for persistent scopes (workspace, workflow, agent-type, KB) plus file-backed markdown workflow state. The `MemoryStore` Protocol defines the memory interface. Agents interact with memory/KB through `memory_read`, `memory_write`, `kb_read`, `kb_write` tools. State shape stays easy to inspect and manually edit while the workflow model is still changing.
+**Phase 1 (MVP):** Git-backed markdown files with keyword search for persistent scopes (workspace, workflow, agent-type, KB) plus file-backed run state and append-only run events. The `MemoryStore` Protocol defines the memory interface. Agents interact with memory/KB through `memory_read`, `memory_write`, `kb_read`, `kb_write` tools. State shape stays easy to inspect and manually edit while the workflow model is still changing.
 
 **Phase 2 (Post-MVP):** Vector store backend (ChromaDB or Qdrant). The `MemoryStore` implementation changes but the Protocol stays the same. Agents don't know or care that search is now semantic. Human-faced markdown files are still generated and kept in sync.
 

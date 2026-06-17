@@ -46,11 +46,11 @@ A repo-local project configuration bundle. It contains the agent registry, workf
 The default MVP workspace lives at `.geartrain/` and is versioned with the project code. GearTrain's own repo should include a working workspace so GearTrain can develop itself from day one.
 
 ### Engine
-The runtime environment that executes workflows. An engine runs on a specific host (local workstation or cloud server), manages workflow state, handles concurrency, and exposes channels for user interaction.
+The runtime environment that executes workflows. An engine runs on a specific host (local workstation or cloud server), manages run state, handles concurrency, and exposes channels for user interaction.
 
 One engine can run multiple workflows concurrently. The engine is responsible for:
 - Starting and stopping workflow runs
-- Persisting workflow state (for interruption recovery)
+- Persisting run state, node runs, attempts, checkpoints, and events
 - Managing agent concurrency limits
 - Routing channel messages to the correct workflow/agent
 
@@ -106,7 +106,7 @@ Rules that define what happens when a workflow step produces a bad output, an ag
 Configuration that chooses which model handles a given agent, workflow node, or action. Routing can be coarse-grained (the reviewer agent uses one model, the classifier uses another) or fine-grained (the same agent uses a stronger model for planning and a cheaper model for summarization). The engine resolves routing at runtime using team and engine configuration.
 
 ### Context Assembly
-The engine process that builds the prompt for an agent call. Context assembly combines system instructions, task input, workflow state, prior outputs, memory, knowledge base results, and tool instructions within a configured context budget.
+The engine process that builds the prompt for an agent call. Context assembly combines system instructions, task input, run state, prior outputs, memory, knowledge base results, and tool instructions within a configured context budget.
 
 Context assembly is a runtime concern, not a pile of static prompt text. It lets GearTrain improve prompts, compression, retrieval, and routing without rewriting every agent definition.
 
@@ -195,13 +195,16 @@ Workspace (MVP)
     └── runs/
         └── <run-id>/
             ├── run.md
-            └── <NN>-<node>.md   # per-node plain text output
+            ├── events.jsonl
+            ├── nodes/
+            ├── attempts/
+            └── checkpoints/
 
 Engine
 ├── LLM Provider Connections (per-user API keys/accounts)
 ├── CLI Agent Credentials (per-user subscriptions)
 ├── Runs Workflows (from one or more teams)
-├── Manages State
+├── Manages Run State and Events
 ├── Exposes Channels (Web UI, CLI, Slack, ...)
 └── Workflow Runs
     └── Agent Instances
