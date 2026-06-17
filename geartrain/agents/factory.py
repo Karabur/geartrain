@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from geartrain.agents.cli_runner import CliAgentRunner
 
 if TYPE_CHECKING:
+    from langchain_core.language_models.chat_models import BaseChatModel
+
     from geartrain.agents import AgentRunner
-    from geartrain.engine.config import AgentDefinition
+    from geartrain.engine.config import (
+        AgentDefinition,
+        EngineConfig,
+        WorkspaceConfig,
+    )
     from geartrain.engine.sandbox import Sandbox
 
 
@@ -20,7 +26,15 @@ class AgentFactory:
     """
 
     @staticmethod
-    def create(agent_def: AgentDefinition, sandbox: Sandbox) -> AgentRunner:
+    def create(
+        agent_def: AgentDefinition,
+        sandbox: Sandbox,
+        *,
+        workspace: "WorkspaceConfig | None" = None,
+        engine: "EngineConfig | None" = None,
+        llm: "BaseChatModel | None" = None,
+        **kwargs: Any,
+    ) -> AgentRunner:
         """Build an agent runner from a definition and sandbox.
 
         Parameters
@@ -29,6 +43,15 @@ class AgentFactory:
             Parsed agent configuration (from YAML).
         sandbox:
             Sandbox instance for command execution.
+        workspace, engine:
+            Configs the ``langchain`` runner needs to resolve a model and
+            interpolate the system prompt. Ignored by the ``cli`` runner.
+        llm:
+            Optional chat model injected directly (tests use a stub). When set,
+            model resolution is skipped.
+        kwargs:
+            Extra keyword arguments forwarded to the langchain runner (e.g.
+            ``tool_root``, ``shell_cwd``).
 
         Returns
         -------
@@ -36,8 +59,6 @@ class AgentFactory:
 
         Raises
         ------
-        NotImplementedError:
-            When the agent type is recognized but not yet implemented.
         ValueError:
             When the agent type is unknown.
         """
@@ -46,6 +67,15 @@ class AgentFactory:
         if agent_type == "cli":
             return CliAgentRunner(agent_def, sandbox)
         elif agent_type == "langchain":
-            raise NotImplementedError("langchain agent type not yet implemented")
+            from geartrain.agents.langchain_runner import LangchainAgentRunner
+
+            return LangchainAgentRunner(
+                agent_def,
+                sandbox,
+                workspace=workspace,
+                engine=engine,
+                llm=llm,
+                **kwargs,
+            )
         else:
             raise ValueError(f"Unknown agent type: {agent_type}")

@@ -91,7 +91,9 @@ class TestAgentFactory:
         runner = AgentFactory.create(_make_agent(), sandbox=None)
         assert isinstance(runner, CliAgentRunner)
 
-    def test_raises_not_implemented_for_langchain(self):
+    def test_creates_langchain_runner(self):
+        from geartrain.agents.langchain_runner import LangchainAgentRunner
+
         agent = AgentDefinition(
             schema_version=1,
             name="lc-agent",
@@ -102,8 +104,8 @@ class TestAgentFactory:
             ),
             system_prompt="",
         )
-        with pytest.raises(NotImplementedError):
-            AgentFactory.create(agent, sandbox=None)
+        runner = AgentFactory.create(agent, sandbox=None)
+        assert isinstance(runner, LangchainAgentRunner)
 
     def test_raises_value_error_for_unknown_type(self, monkeypatch):
         agent = _make_agent()

@@ -18,8 +18,10 @@ from pathlib import Path
 from geartrain.engine.config import (
     AgentDefinition,
     CliAgentConfig,
+    LangchainAgentConfig,
     WorkspaceConfig,
 )
+from geartrain.agents.tools import available_tools
 from geartrain.engine.loader import (
     load_agent,
     load_engine,
@@ -281,6 +283,32 @@ def validate_agent(
                     f"it will be created at runtime if writable"
                 ),
             ))
+
+    if isinstance(cfg.config, LangchainAgentConfig):
+        # Model hint resolves against workspace model_hints.
+        hint = cfg.config.model_hint
+        if hint and hint not in workspace.llm.model_hints:
+            diags.append(Diagnostic(
+                file=path, line=None, sev="error",
+                fps="agent.langchain.model_hint",
+                message=(
+                    f"model hint {hint!r} not in workspace model_hints — "
+                    f"available hints: {sorted(workspace.llm.model_hints)}"
+                ),
+            ))
+
+        # Tool names are known to the registry.
+        known = set(available_tools())
+        for tool_name in cfg.config.tools:
+            if tool_name not in known:
+                diags.append(Diagnostic(
+                    file=path, line=None, sev="error",
+                    fps="agent.langchain.tools",
+                    message=(
+                        f"unknown tool {tool_name!r} — "
+                        f"available tools: {sorted(known)}"
+                    ),
+                ))
 
     return diags
 

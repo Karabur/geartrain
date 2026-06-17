@@ -180,15 +180,24 @@ class CliAgentConfig(_BaseAgentConfig):
 
 
 class LangchainAgentConfig(_BaseAgentConfig):
-    """Configuration for a langchain-type agent."""
+    """Configuration for a langchain-type agent.
+
+    The model is chosen by ``model_hint`` (resolved against workspace
+    ``model_hints``) or by an explicit ``llm_provider``/``llm_model`` pair.
+    When neither is set the workspace defaults apply. Credentials never live
+    here — they come from the engine config.
+    """
 
     type: Literal["langchain"]
-    llm_provider: str
-    llm_model: str
+    llm_provider: str | None = None
+    llm_model: str | None = None
+    model_hint: str | None = None
     tools: list[str] = []
     context_window: int = 8192
     guardrails: list[str] = []
     runtime: str = "sync"
+    work_folder: str = "work"
+    forbidden_paths: list[str] = []
 
 
 def _agent_type_discriminator(value: Any) -> str:

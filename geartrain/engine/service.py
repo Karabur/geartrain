@@ -11,7 +11,29 @@ from starlette.responses import JSONResponse
 
 from geartrain.agents.factory import AgentFactory
 from geartrain.engine.app import EngineApp
+from geartrain.engine.config import AgentDefinition
 from geartrain.engine.state import generate_run_id
+
+
+def _build_runner(engine_app: EngineApp, agent_def: AgentDefinition):
+    """Create an agent runner with the context a langchain agent needs.
+
+    The ``cli`` runner ignores the extra config; the ``langchain`` runner uses
+    the workspace and engine for model resolution and the engine ``tools``
+    settings for tool roots and shell limits.
+    """
+    tools = engine_app.engine.tools or {}
+    fs = tools.get("filesystem", {})
+    shell = tools.get("shell", {})
+    return AgentFactory.create(
+        agent_def,
+        engine_app.sandbox,
+        workspace=engine_app.workspace,
+        engine=engine_app.engine,
+        tool_root=fs.get("root", "."),
+        shell_cwd=shell.get("cwd", "."),
+        shell_timeout=shell.get("timeout_seconds", 60),
+    )
 
 
 def create_app(engine_app: EngineApp) -> Starlette:
@@ -42,7 +64,7 @@ def create_app(engine_app: EngineApp) -> Starlette:
         }
 
         agent_def = engine_app.agents[name]
-        runner = AgentFactory.create(agent_def, engine_app.sandbox)
+        runner = _build_runner(engine_app, agent_def)
 
         try:
             output = await asyncio.to_thread(runner.run, task, context)
@@ -74,7 +96,7 @@ def create_app(engine_app: EngineApp) -> Starlette:
 
         workflow_def = app.workflows[workflow_name]
         agents = {
-            role: AgentFactory.create(app.agents[agent_name], app.sandbox)
+            role: _build_runner(app, app.agents[agent_name])
             for role, agent_name in workflow_def.agents.items()
             if agent_name in app.agents
         }
@@ -108,7 +130,7 @@ def create_app(engine_app: EngineApp) -> Starlette:
         workflow_def = engine_app.workflows[name]
         state_path = Path(engine_app.engine.state.path)
         agents = {
-            role: AgentFactory.create(engine_app.agents[agent_name], engine_app.sandbox)
+            role: _build_runner(engine_app, engine_app.agents[agent_name])
             for role, agent_name in workflow_def.agents.items()
             if agent_name in engine_app.agents
         }

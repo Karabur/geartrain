@@ -14,3 +14,4 @@ yarn-error.log*
 geartrain.egg-info
 __pycache__/
 *.pyc
+.geartrain/state

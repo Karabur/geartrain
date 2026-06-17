@@ -40,8 +40,8 @@ class TestAgentFactory:
         result = runner.run("do something", {})
         assert isinstance(result, str)
 
-    def test_create_langchain_raises_not_implemented(self, tmp_path):
-        """Factory raises NotImplementedError for langchain type."""
+    def test_create_langchain_returns_runner(self, tmp_path):
+        """Factory builds a LangchainAgentRunner for a langchain-type agent."""
         agent_dir = tmp_path / ".geartrain" / "agents"
         agent_dir.mkdir(parents=True, exist_ok=True)
         agent_file = agent_dir / "lc-agent.yaml"
@@ -55,8 +55,11 @@ class TestAgentFactory:
         """))
 
         agent_def = load_agent(str(agent_file))
-        with pytest.raises(NotImplementedError, match="langchain"):
-            AgentFactory.create(agent_def, NoopSandbox())
+        runner = AgentFactory.create(agent_def, NoopSandbox())
+
+        from geartrain.agents.langchain_runner import LangchainAgentRunner
+
+        assert isinstance(runner, LangchainAgentRunner)
 
     def test_create_unknown_type_raises_value_error(self, tmp_path):
         """Factory raises ValueError for an unrecognized agent type."""

@@ -347,6 +347,65 @@ class TestValidScaffold:
         assert errors == [], f"unexpected errors: {errors}"
 
 
+# --- Langchain agent validation ---------------------------------------------
+
+
+class TestLangchainAgentValidation:
+    """validate_agent checks model hints and tool names for langchain agents."""
+
+    def _workspace(self):
+        from geartrain.engine.loader import load_workspace
+
+        return load_workspace(str(ROOT / ".geartrain" / "workspace.yaml"))
+
+    def _write_agent(self, tmp_path, block: str) -> Path:
+        agent_dir = tmp_path / ".geartrain" / "agents"
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        f = agent_dir / "lc.agent.yaml"
+        f.write_text(dedent(block))
+        return f
+
+    def test_valid_langchain_agent(self, tmp_path):
+        f = self._write_agent(tmp_path, """\
+            schema_version: 1
+            name: lc-coder
+            type: langchain
+            langchain:
+              model_hint: code
+              tools:
+                - file_read
+                - shell_exec
+        """)
+        diags = validate_agent(f, self._workspace(), repo_root=tmp_path)
+        assert [d for d in diags if d.sev == "error"] == []
+
+    def test_unknown_model_hint(self, tmp_path):
+        f = self._write_agent(tmp_path, """\
+            schema_version: 1
+            name: lc-coder
+            type: langchain
+            langchain:
+              model_hint: bogus
+        """)
+        diags = validate_agent(f, self._workspace(), repo_root=tmp_path)
+        errors = [d for d in diags if d.sev == "error"]
+        assert any("model hint" in d.message for d in errors)
+
+    def test_unknown_tool(self, tmp_path):
+        f = self._write_agent(tmp_path, """\
+            schema_version: 1
+            name: lc-coder
+            type: langchain
+            langchain:
+              tools:
+                - file_read
+                - teleport
+        """)
+        diags = validate_agent(f, self._workspace(), repo_root=tmp_path)
+        errors = [d for d in diags if d.sev == "error"]
+        assert any("unknown tool" in d.message for d in errors)
+
+
 # --- Diagnostic formatting --------------------------------------------------
 
 
