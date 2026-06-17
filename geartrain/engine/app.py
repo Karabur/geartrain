@@ -8,7 +8,9 @@ from typing import Any
 
 from geartrain.engine.config import AgentDefinition, WorkflowDefinition
 from geartrain.engine.loader import load_agent, load_engine, load_workflow, load_workspace
+from geartrain.engine.sandbox import NoopSandbox
 from geartrain.engine.state import FileStateBackend, create_state_backend
+from geartrain.memory.noop import NoopMemoryManager
 
 
 class EngineApp:
@@ -24,6 +26,8 @@ class EngineApp:
         self.workspace = load_workspace(str(workspace_path))
         self.engine = load_engine(str(engine_path))
         self.state_backend = create_state_backend(self.engine)
+        self.sandbox = NoopSandbox()
+        self.memory_manager = NoopMemoryManager()
         self.agents: dict[str, AgentDefinition] = {}
         self.workflows: dict[str, WorkflowDefinition] = {}
         self.running = False

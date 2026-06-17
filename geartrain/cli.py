@@ -6,17 +6,18 @@ Usage:
 """
 
 import argparse
+import http.client
 import os
+import signal
 import sys
+import threading
 from pathlib import Path
 
-from geartrain.engine.validator import (
-    format_diagnostics,
-    validate_all,
-    validate_engine,
-    validate_workflow,
-    validate_workspace,
-)
+from geartrain.engine.app import EngineApp
+from geartrain.engine.loader import load_engine
+from geartrain.engine.service import create_app as create_http_app
+from geartrain.engine.state import FileStateBackend
+from geartrain.engine.validator import format_diagnostics, validate_all
 
 
 def _find_config_files() -> tuple[Path, Path | None]:
@@ -32,15 +33,126 @@ def _find_config_files() -> tuple[Path, Path | None]:
     return ws_path, engine_path
 
 
-def _run_validate() -> int:
-    """Run validation and return exit code."""
+# --- Engine lifecycle -------------------------------------------------------
+
+
+def _run_engine_start() -> None:
+    """Start the engine: validate config, launch app and HTTP server."""
     ws_path, engine_path = _find_config_files()
+
+    if engine_path is None or not engine_path.exists():
+        print("Engine config not found. Run 'geartrain init' first.")
+        sys.exit(1)
 
     diags = validate_all(ws_path, engine_path)
     print(format_diagnostics(diags))
 
-    has_errors = any(d.sev == "error" for d in diags)
-    return 1 if has_errors else 0
+    if any(d.sev == "error" for d in diags):
+        sys.exit(1)
+
+    app = EngineApp(workspace_path=ws_path, engine_path=engine_path)
+    app.load_registries()
+    app.start()
+
+    host = app.engine.host
+    port = app.engine.port
+
+    import uvicorn
+
+    config = uvicorn.Config(
+        create_http_app(app),
+        host=host,
+        port=port,
+        log_level="info",
+    )
+    server = uvicorn.Server(config)
+
+    def _run():
+        server.run()
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+    print(f"Engine started on {host}:{port}")
+
+    def _shutdown(signum, frame):
+        server.should_exit = True
+        app.stop()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+
+    try:
+        t.join()
+    except KeyboardInterrupt:
+        server.should_exit = True
+        app.stop()
+        sys.exit(0)
+
+
+def _run_engine_status() -> None:
+    """Query the engine API for status, or report not running."""
+    engine_path = Path.cwd() / ".geartrain" / "engines" / "local.engine.yaml"
+
+    try:
+        engine = load_engine(str(engine_path))
+        host = engine.host
+        port = engine.port
+    except FileNotFoundError:
+        host = "127.0.0.1"
+        port = 8420
+
+    try:
+        conn = http.client.HTTPConnection(host, port, timeout=5)
+        conn.request("GET", "/status")
+        resp = conn.getresponse()
+        data = resp.json()
+        conn.close()
+
+        print(f"Engine: running")
+        print(f"  Workspace: {data.get('workspace', '?')}")
+        print(f"  Engine: {data.get('engine', '?')}")
+        agents = data.get("agents", [])
+        workflows = data.get("workflows", [])
+        print(f"  Agents: {', '.join(agents) if agents else 'none'}")
+        print(f"  Workflows: {', '.join(workflows) if workflows else 'none'}")
+    except (ConnectionRefusedError, OSError):
+        print("Engine is not running")
+        # Check persisted state file for last known state
+        try:
+            state_path = Path.cwd() / ".geartrain" / "state"
+            backend = FileStateBackend(state_path)
+            state = backend.read_engine_state()
+            print(f"  Last state: {state.get('status', 'unknown')}")
+        except (FileNotFoundError, ValueError):
+            pass
+
+
+def _run_engine_stop() -> None:
+    """Send stop signal to the running engine."""
+    engine_path = Path.cwd() / ".geartrain" / "engines" / "local.engine.yaml"
+
+    try:
+        engine = load_engine(str(engine_path))
+        host = engine.host
+        port = engine.port
+    except FileNotFoundError:
+        host = "127.0.0.1"
+        port = 8420
+
+    try:
+        conn = http.client.HTTPConnection(host, port, timeout=5)
+        conn.request("POST", "/engine/stop")
+        resp = conn.getresponse()
+        resp.read()
+        conn.close()
+        print("Engine stopped")
+    except (ConnectionRefusedError, OSError):
+        print("Engine is not running")
+
+
+# --- Parser -----------------------------------------------------------------
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -91,12 +203,20 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "engine":
         if not args.engine_action:
-            engine_parser = parser.parse_args(["engine", "-h"])
-        print(f"Engine: {args.engine_action}")
+            parser.parse_args(["engine", "-h"])
+        elif args.engine_action == "start":
+            _run_engine_start()
+        elif args.engine_action == "status":
+            _run_engine_status()
+        elif args.engine_action == "stop":
+            _run_engine_stop()
 
     elif args.command == "validate":
-        rc = _run_validate()
-        sys.exit(rc)
+        ws_path, engine_path = _find_config_files()
+        diags = validate_all(ws_path, engine_path)
+        print(format_diagnostics(diags))
+        has_errors = any(d.sev == "error" for d in diags)
+        sys.exit(1 if has_errors else 0)
 
     elif args.command == "agent":
         print(f"Agent: running '{args.agent_name}' with prompt: {args.prompt}")
