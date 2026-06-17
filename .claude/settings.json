@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "deny": [
+      "DesignSync"
+    ],
+    "allow": [
+      "WebFetch(domain:files.pythonhosted.org)",
+      "Bash(rtk git *)",
+      "Bash(rtk git commit -m 'P1-03: define config models and YAML loading *)",
+      "Bash(.venv/bin/pip install *)",
+      "Bash(rtk ls *)"
+    ]
+  }
+}

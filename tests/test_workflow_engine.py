@@ -322,14 +322,32 @@ class TestHumanCheckpointRunner:
 
 
 class TestIntegrationNodeRunner:
-    def test_returns_stub_output_and_default_transition(self):
-        runner = IntegrationNodeRunner()
+    def test_runs_github_action_and_follows_default_transition(self):
+        class FakeGitHub:
+            def create_pull_request(self, *, title, head, base="main", body=""):
+                return {"number": 7, "url": "https://gh/pr/7", "title": title, "state": "open"}
+
+        runner = IntegrationNodeRunner({"github": FakeGitHub()})
         result = runner.run(
-            {"integration": "github", "action": "create_pr", "transitions": {"default": "done"}},
-            {},
+            {
+                "service": "github",
+                "action": "open_pr",
+                "transitions": {"default": "done"},
+            },
+            {"title": "My PR", "head": "feature/x"},
         )
-        assert "stub" in result.output.lower()
+        assert "PR #7" in result.output
         assert result.next_node == "done"
+
+    def test_missing_client_raises(self):
+        from geartrain.workflows.nodes import IntegrationError
+
+        runner = IntegrationNodeRunner()
+        with pytest.raises(IntegrationError):
+            runner.run(
+                {"service": "github", "action": "open_pr", "transitions": {}},
+                {"title": "x", "head": "y"},
+            )
 
 
 # ---------------------------------------------------------------------------

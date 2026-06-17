@@ -77,6 +77,7 @@ class WorkflowRunner:
         state_path: Path,
         work_dir: Path | None = None,
         checkpoint_input_fn=None,
+        integrations: dict[str, Any] | None = None,
     ) -> None:
         self.workflow = workflow
         self.agents = agents
@@ -84,8 +85,10 @@ class WorkflowRunner:
         self.state_path = state_path
         self.work_dir = work_dir
         self._checkpoint_input_fn = checkpoint_input_fn
+        self.integrations = integrations or {}
         self._lock = WorkflowLock(state_path, workflow.name)
         self._factory = WorkflowFactory(workflow)
+        self._current_node: str | None = None
 
     def is_locked(self) -> bool:
         return self._lock.is_locked()
@@ -146,8 +149,16 @@ class WorkflowRunner:
 
             node_def = dict(nodes[current_node_id])
             node_type = node_def.get("type", "agent")
+            self._current_node = current_node_id
 
             self.state_backend.update_run_status(run_id, "running", current_node_id)
+            self._event(
+                run_id,
+                "node_start",
+                node_id=current_node_id,
+                node_type=node_type,
+                node_number=node_number,
+            )
 
             # Resolve node inputs into execution context
             raw_inputs = node_def.get("inputs", {})
@@ -162,7 +173,15 @@ class WorkflowRunner:
             node_context["last_output"] = list(node_outputs.values())[-1] if node_outputs else ""
             node_context["prior_outputs"] = list(node_outputs.items())
 
-            result = self._run_node(node_type, node_def, node_context)
+            result = self._run_node(run_id, current_node_id, node_type, node_def, node_context)
+
+            self._event(
+                run_id,
+                "node_complete",
+                node_id=current_node_id,
+                node_type=node_type,
+                status=result.status,
+            )
 
             output_key = node_def.get("output_key", current_node_id)
             node_outputs[output_key] = result.output
@@ -189,7 +208,14 @@ class WorkflowRunner:
             "node_outputs": dict(node_outputs),
         }
 
-    def _run_node(self, node_type: str, node_def: dict, context: dict) -> NodeResult:
+    def _run_node(
+        self,
+        run_id: str,
+        node_id: str,
+        node_type: str,
+        node_def: dict,
+        context: dict,
+    ) -> NodeResult:
         if node_type == "agent":
             agent_runner = AgentNodeRunner(self.agents)
             return agent_runner.run(node_def, context)
@@ -199,12 +225,37 @@ class WorkflowRunner:
             runner = HumanCheckpointRunner(input_fn=self._checkpoint_input_fn)
             return runner.run(node_def, context)
         elif node_type == "integration":
-            return IntegrationNodeRunner().run(node_def, context)
+            runner = IntegrationNodeRunner(
+                self.integrations,
+                event_sink=self._node_event_sink(run_id, node_id),
+            )
+            return runner.run(node_def, context)
         else:
             raise WorkflowRunError(f"Unknown node type {node_type!r}")
 
+    def _event(self, run_id: str, event_type: str, **data: Any) -> None:
+        """Append an event to the run store, ignoring storage failures."""
+        try:
+            self.state_backend.append_event(run_id, event_type, data)
+        except Exception:
+            pass
+
+    def _node_event_sink(self, run_id: str, node_id: str):
+        """Return an event sink bound to a run and node for a node runner."""
+
+        def sink(event_type: str, **data: Any) -> None:
+            self._event(run_id, event_type, node_id=node_id, **data)
+
+        return sink
+
     def _handle_failure(self, run_id: str, error_msg: str) -> None:
-        """Log the error and mark the run as failed."""
+        """Log the error, record a failure summary, and mark the run as failed."""
+        self._event(
+            run_id,
+            "run_failed",
+            node_id=self._current_node,
+            error=error_msg,
+        )
         try:
             self.state_backend.update_run_status(run_id, "failed")
         except Exception:

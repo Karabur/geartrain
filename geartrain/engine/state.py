@@ -6,6 +6,7 @@ frontmatter under a configurable state directory.
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -253,3 +254,43 @@ class FileStateBackend:
         raise FileNotFoundError(
             f"node output file for {node_id!r} not found in {run_dir}"
         )
+
+    # -- Run events ----------------------------------------------------------
+
+    def append_event(
+        self, run_id: str, event_type: str, data: dict | None = None
+    ) -> None:
+        """Append one event to a run's append-only ``events.jsonl`` log.
+
+        Each line is a JSON object with a sequence number, UTC timestamp, the
+        event type, and the merged ``data`` fields. The log is the structured
+        record Phase 7 observability reads from.
+        """
+        run_dir = self.state_path / "runs" / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        events_file = run_dir / "events.jsonl"
+
+        seq = 1
+        if events_file.exists():
+            seq = sum(1 for _ in events_file.open(encoding="utf-8")) + 1
+
+        event = {
+            "seq": seq,
+            "timestamp": _now_iso(),
+            "type": event_type,
+            **(data or {}),
+        }
+        with events_file.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(event) + "\n")
+
+    def read_events(self, run_id: str) -> list[dict]:
+        """Read a run's events in order. Returns an empty list if none exist."""
+        events_file = self.state_path / "runs" / run_id / "events.jsonl"
+        if not events_file.exists():
+            return []
+        events = []
+        for line in events_file.open(encoding="utf-8"):
+            line = line.strip()
+            if line:
+                events.append(json.loads(line))
+        return events

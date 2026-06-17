@@ -33,11 +33,14 @@ def run_geartrain_dev(
     run_id: str,
     log_file: Path,
     checkpoint_input_fn=None,
+    integrations: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run one geartrain-dev workflow iteration.
 
     Selects the next task, moves it to in-progress if needed, runs coder
     then lead via the generic engine, and appends one line to the log.
+    Pass ``integrations`` (e.g. ``{"github": client}``) to back any
+    integration nodes in the workflow.
 
     Returns the workflow result dict. Raises WorkflowRunError if already running.
     """
@@ -48,6 +51,7 @@ def run_geartrain_dev(
         state_path=state_path,
         work_dir=work_dir,
         checkpoint_input_fn=checkpoint_input_fn,
+        integrations=integrations,
     )
 
     if runner.is_locked():

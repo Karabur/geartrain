@@ -15,6 +15,30 @@ from geartrain.engine.config import AgentDefinition
 from geartrain.engine.state import generate_run_id
 
 
+def _build_integrations(engine_app: EngineApp) -> dict:
+    """Build available integration clients from config.
+
+    Returns ``{"github": client}`` when the github integration is configured
+    and its token is present. A missing integration or credential is not an
+    error here — workflows without integration nodes still run; nodes that need
+    a missing client fail with a clear message at run time.
+    """
+    from geartrain.integrations.github import (
+        GitHubError,
+        github_client_from_config,
+    )
+
+    integrations: dict = {}
+    if "github" in engine_app.workspace.integrations:
+        try:
+            integrations["github"] = github_client_from_config(
+                engine_app.workspace, engine_app.engine
+            )
+        except GitHubError:
+            pass
+    return integrations
+
+
 def _build_runner(engine_app: EngineApp, agent_def: AgentDefinition):
     """Create an agent runner with the context a langchain agent needs.
 
@@ -115,6 +139,8 @@ def create_app(engine_app: EngineApp) -> Starlette:
                 work_dir,
                 run_id,
                 log_file,
+                None,
+                _build_integrations(app),
             )
             return result
         except Exception as exc:
@@ -161,6 +187,8 @@ def create_app(engine_app: EngineApp) -> Starlette:
                 work_dir,
                 run_id,
                 log_file,
+                None,
+                _build_integrations(engine_app),
             )
             return JSONResponse(result)
         except Exception as exc:

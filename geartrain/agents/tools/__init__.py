@@ -10,7 +10,12 @@ from __future__ import annotations
 from functools import partial
 from typing import TYPE_CHECKING, Sequence
 
-from geartrain.agents.tools import files, memory as memory_tools, shell
+from geartrain.agents.tools import (
+    files,
+    github as github_tools,
+    memory as memory_tools,
+    shell,
+)
 from geartrain.agents.tools.base import (
     ToolEvent,
     ToolRecorder,
@@ -24,6 +29,7 @@ if TYPE_CHECKING:
 
     from geartrain.agents.tools.memory import MemoryToolDeps
     from geartrain.engine.sandbox import Sandbox
+    from geartrain.integrations.github import GitHubClient
 
 __all__ = [
     "ToolEvent",
@@ -34,6 +40,13 @@ __all__ = [
 ]
 
 _MEMORY_TOOLS = ("memory_read", "memory_write", "kb_read", "kb_write")
+_GITHUB_TOOLS = (
+    "github_create_branch",
+    "github_commit",
+    "github_create_pr",
+    "github_get_issue",
+    "github_update_issue",
+)
 
 
 def available_tools() -> list[str]:
@@ -48,6 +61,7 @@ def available_tools() -> list[str]:
         "git_commit",
         "git_branch",
         *_MEMORY_TOOLS,
+        *_GITHUB_TOOLS,
     ]
 
 
@@ -61,12 +75,13 @@ def build_tools(
     shell_cwd: str = ".",
     shell_timeout: int = 60,
     memory: "MemoryToolDeps | None" = None,
+    github: "GitHubClient | None" = None,
 ) -> list["StructuredTool"]:
     """Build the named tools, each bound to *sandbox* and recording to *recorder*.
 
-    Pass *memory* to enable the ``memory_*`` and ``kb_*`` tools; without it,
-    requesting one raises ``ValueError``. Also raises ``ValueError`` for an
-    unknown tool name.
+    Pass *memory* to enable the ``memory_*`` and ``kb_*`` tools and *github* to
+    enable the ``github_*`` tools; without the matching dep, requesting one
+    raises ``ValueError``. Also raises ``ValueError`` for an unknown tool name.
     """
     file_deps = {
         "sandbox": sandbox,
@@ -124,6 +139,8 @@ def build_tools(
 
     if memory is not None:
         specs.update(_memory_specs(memory))
+    if github is not None:
+        specs.update(_github_specs(github))
 
     built: list["StructuredTool"] = []
     for name in names:
@@ -131,6 +148,10 @@ def build_tools(
             if name in _MEMORY_TOOLS:
                 raise ValueError(
                     f"tool {name!r} needs memory deps; pass memory= to build it"
+                )
+            if name in _GITHUB_TOOLS:
+                raise ValueError(
+                    f"tool {name!r} needs a github client; pass github= to build it"
                 )
             raise ValueError(
                 f"unknown tool {name!r}; available tools: {sorted(specs)}"
@@ -178,5 +199,36 @@ def _memory_specs(memory: "MemoryToolDeps") -> dict:
                 system=MemorySystem.KNOWLEDGE,
             ),
             memory_tools.MemoryWriteArgs,
+        ),
+    }
+
+
+def _github_specs(github: "GitHubClient") -> dict:
+    """Tool specs for the GitHub tools, bound to *github* client."""
+    return {
+        "github_create_branch": (
+            "Create a git branch on GitHub from a base branch.",
+            partial(github_tools.github_create_branch, client=github),
+            github_tools.GitHubBranchArgs,
+        ),
+        "github_commit": (
+            "Commit a single file to a branch on GitHub.",
+            partial(github_tools.github_commit, client=github),
+            github_tools.GitHubCommitArgs,
+        ),
+        "github_create_pr": (
+            "Open a pull request on GitHub.",
+            partial(github_tools.github_create_pr, client=github),
+            github_tools.GitHubPullRequestArgs,
+        ),
+        "github_get_issue": (
+            "Read a GitHub issue's title, body, labels, assignee, and state.",
+            partial(github_tools.github_get_issue, client=github),
+            github_tools.GitHubGetIssueArgs,
+        ),
+        "github_update_issue": (
+            "Update a GitHub issue's state and/or labels.",
+            partial(github_tools.github_update_issue, client=github),
+            github_tools.GitHubUpdateIssueArgs,
         ),
     }
