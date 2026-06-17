@@ -405,6 +405,51 @@ class TestLangchainAgentValidation:
         errors = [d for d in diags if d.sev == "error"]
         assert any("unknown tool" in d.message for d in errors)
 
+    def test_valid_memory_scopes(self, tmp_path):
+        f = self._write_agent(tmp_path, """\
+            schema_version: 1
+            name: lc-coder
+            type: langchain
+            langchain: {}
+            memory:
+              read:
+                - workspace
+                - agent_instance
+              write:
+                - workspace
+                - agent_level
+        """)
+        diags = validate_agent(f, self._workspace(), repo_root=tmp_path)
+        assert [d for d in diags if d.sev == "error"] == []
+
+    def test_unknown_memory_scope(self, tmp_path):
+        f = self._write_agent(tmp_path, """\
+            schema_version: 1
+            name: lc-coder
+            type: langchain
+            langchain: {}
+            memory:
+              read:
+                - galaxy
+        """)
+        diags = validate_agent(f, self._workspace(), repo_root=tmp_path)
+        errors = [d for d in diags if d.sev == "error"]
+        assert any("unknown memory scope" in d.message for d in errors)
+
+    def test_non_writable_memory_scope(self, tmp_path):
+        f = self._write_agent(tmp_path, """\
+            schema_version: 1
+            name: lc-coder
+            type: langchain
+            langchain: {}
+            memory:
+              write:
+                - agent_instance
+        """)
+        diags = validate_agent(f, self._workspace(), repo_root=tmp_path)
+        errors = [d for d in diags if d.sev == "error"]
+        assert any("not writable" in d.message for d in errors)
+
 
 # --- Diagnostic formatting --------------------------------------------------
 

@@ -310,6 +310,51 @@ def validate_agent(
                     ),
                 ))
 
+    diags.extend(_validate_memory_scopes(path, cfg))
+    return diags
+
+
+def _validate_memory_scopes(
+    path: Path, cfg: AgentDefinition
+) -> list[Diagnostic]:
+    """Check an agent's memory read/write scopes are valid and writable."""
+    from geartrain.memory.store import WRITABLE_SCOPES, MemoryScope
+
+    diags: list[Diagnostic] = []
+    valid = {s.value for s in MemoryScope}
+    writable = {s.value for s in WRITABLE_SCOPES}
+
+    for scope in cfg.memory.read:
+        if scope not in valid:
+            diags.append(Diagnostic(
+                file=path, line=None, sev="error",
+                fps="agent.memory.read",
+                message=(
+                    f"unknown memory scope {scope!r} — "
+                    f"valid scopes: {sorted(valid)}"
+                ),
+            ))
+
+    for scope in cfg.memory.write:
+        if scope not in valid:
+            diags.append(Diagnostic(
+                file=path, line=None, sev="error",
+                fps="agent.memory.write",
+                message=(
+                    f"unknown memory scope {scope!r} — "
+                    f"valid scopes: {sorted(valid)}"
+                ),
+            ))
+        elif scope not in writable:
+            diags.append(Diagnostic(
+                file=path, line=None, sev="error",
+                fps="agent.memory.write",
+                message=(
+                    f"scope {scope!r} is not writable — "
+                    f"writable scopes: {sorted(writable)}"
+                ),
+            ))
+
     return diags
 
 

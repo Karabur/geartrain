@@ -10,17 +10,19 @@ from __future__ import annotations
 from functools import partial
 from typing import TYPE_CHECKING, Sequence
 
-from geartrain.agents.tools import files, shell
+from geartrain.agents.tools import files, memory as memory_tools, shell
 from geartrain.agents.tools.base import (
     ToolEvent,
     ToolRecorder,
     ToolResult,
     build_tool,
 )
+from geartrain.memory.store import MemorySystem
 
 if TYPE_CHECKING:
     from langchain_core.tools import StructuredTool
 
+    from geartrain.agents.tools.memory import MemoryToolDeps
     from geartrain.engine.sandbox import Sandbox
 
 __all__ = [
@@ -30,6 +32,8 @@ __all__ = [
     "build_tools",
     "available_tools",
 ]
+
+_MEMORY_TOOLS = ("memory_read", "memory_write", "kb_read", "kb_write")
 
 
 def available_tools() -> list[str]:
@@ -43,6 +47,7 @@ def available_tools() -> list[str]:
         "git_diff",
         "git_commit",
         "git_branch",
+        *_MEMORY_TOOLS,
     ]
 
 
@@ -55,10 +60,13 @@ def build_tools(
     forbidden_paths: Sequence[str] = (),
     shell_cwd: str = ".",
     shell_timeout: int = 60,
+    memory: "MemoryToolDeps | None" = None,
 ) -> list["StructuredTool"]:
     """Build the named tools, each bound to *sandbox* and recording to *recorder*.
 
-    Raises ``ValueError`` for an unknown tool name.
+    Pass *memory* to enable the ``memory_*`` and ``kb_*`` tools; without it,
+    requesting one raises ``ValueError``. Also raises ``ValueError`` for an
+    unknown tool name.
     """
     file_deps = {
         "sandbox": sandbox,
@@ -114,12 +122,61 @@ def build_tools(
         ),
     }
 
+    if memory is not None:
+        specs.update(_memory_specs(memory))
+
     built: list["StructuredTool"] = []
     for name in names:
         if name not in specs:
+            if name in _MEMORY_TOOLS:
+                raise ValueError(
+                    f"tool {name!r} needs memory deps; pass memory= to build it"
+                )
             raise ValueError(
                 f"unknown tool {name!r}; available tools: {sorted(specs)}"
             )
         description, func, args_schema = specs[name]
         built.append(build_tool(name, description, func, args_schema, recorder))
     return built
+
+
+def _memory_specs(memory: "MemoryToolDeps") -> dict:
+    """Tool specs for the memory and knowledge tools, bound to *memory*."""
+    return {
+        "memory_read": (
+            "Search the agent's memory for entries matching keywords.",
+            partial(
+                memory_tools.memory_read,
+                deps=memory,
+                system=MemorySystem.MEMORY,
+            ),
+            memory_tools.MemoryReadArgs,
+        ),
+        "memory_write": (
+            "Store a memory entry in one of the agent's writable scopes.",
+            partial(
+                memory_tools.memory_write,
+                deps=memory,
+                system=MemorySystem.MEMORY,
+            ),
+            memory_tools.MemoryWriteArgs,
+        ),
+        "kb_read": (
+            "Search the knowledge base for entries matching keywords.",
+            partial(
+                memory_tools.memory_read,
+                deps=memory,
+                system=MemorySystem.KNOWLEDGE,
+            ),
+            memory_tools.MemoryReadArgs,
+        ),
+        "kb_write": (
+            "Store a knowledge-base entry in one of the agent's writable scopes.",
+            partial(
+                memory_tools.memory_write,
+                deps=memory,
+                system=MemorySystem.KNOWLEDGE,
+            ),
+            memory_tools.MemoryWriteArgs,
+        ),
+    }

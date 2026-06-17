@@ -32,12 +32,15 @@ class ToolResult:
 
     ``output`` is the text handed to the model. On failure, set ``status`` to
     ``"error"`` and put a short reason in ``error`` — the output still flows to
-    the model so the agent can react.
+    the model so the agent can react. ``metadata`` carries structured detail
+    (e.g. a memory write's scope, path, and guardrail result) for Phase 7
+    events; it never reaches the model.
     """
 
     output: str
     status: str = "ok"
     error: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

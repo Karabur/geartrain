@@ -18,6 +18,8 @@ from geartrain.agents.context_builder import ContextBuilder
 from geartrain.agents.interpolation import interpolate
 from geartrain.agents.llm import resolve_llm
 from geartrain.agents.tools import ToolRecorder, build_tools
+from geartrain.agents.tools.memory import MemoryToolDeps
+from geartrain.memory.store import DEFAULT_READ_SCOPES, parse_scopes
 
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
@@ -28,6 +30,7 @@ if TYPE_CHECKING:
         WorkspaceConfig,
     )
     from geartrain.engine.sandbox import Sandbox
+    from geartrain.memory.store import MemoryStore
 
 
 class LangchainAgentRunner:
@@ -51,6 +54,7 @@ class LangchainAgentRunner:
         shell_cwd: str = ".",
         shell_timeout: int = 60,
         namespaces: dict[str, Any] | None = None,
+        memory_store: "MemoryStore | None" = None,
     ) -> None:
         self.agent_def = agent_def
         self.sandbox = sandbox
@@ -60,6 +64,7 @@ class LangchainAgentRunner:
         self.tool_root = tool_root
         self.shell_cwd = shell_cwd
         self.shell_timeout = shell_timeout
+        self.memory_store = memory_store
         self.recorder = ToolRecorder()
 
         # Resolve ${...} references in the system prompt at load time, so a bad
@@ -112,6 +117,29 @@ class LangchainAgentRunner:
             builder.with_memory_entries(scope, entries)
         return builder.build()
 
+    def _memory_deps(self, context: dict) -> "MemoryToolDeps | None":
+        """Build memory tool deps from the store, agent scopes, and run context.
+
+        Returns ``None`` when no store is wired, so the memory tools stay
+        unavailable rather than erroring at build time.
+        """
+        if self.memory_store is None:
+            return None
+        mem = self.agent_def.memory
+        read_scopes = (
+            parse_scopes(mem.read) if mem.read else DEFAULT_READ_SCOPES
+        )
+        return MemoryToolDeps(
+            store=self.memory_store,
+            read_scopes=read_scopes,
+            write_scopes=parse_scopes(mem.write),
+            workflow=context.get("workflow", ""),
+            agent_type=self.agent_def.name,
+            source_run=context.get("run_id", ""),
+            source_node=context.get("node_id", ""),
+            source_agent=self.agent_def.name,
+        )
+
     def run(self, task: str, context: dict) -> str:
         """Run the agent loop and return the final message text."""
         self.recorder = ToolRecorder()
@@ -123,6 +151,7 @@ class LangchainAgentRunner:
             forbidden_paths=self.agent_def.config.forbidden_paths,
             shell_cwd=self.shell_cwd,
             shell_timeout=self.shell_timeout,
+            memory=self._memory_deps(context),
         )
 
         model = self._resolve_model()

@@ -10,6 +10,7 @@ from geartrain.engine.config import AgentDefinition, WorkflowDefinition
 from geartrain.engine.loader import load_agent, load_engine, load_workflow, load_workspace
 from geartrain.engine.sandbox import NoopSandbox
 from geartrain.engine.state import FileStateBackend, create_state_backend
+from geartrain.memory.markdown import MarkdownMemoryStore
 from geartrain.memory.noop import NoopMemoryManager
 
 
@@ -27,7 +28,10 @@ class EngineApp:
         self.engine = load_engine(str(engine_path))
         self.state_backend = create_state_backend(self.engine)
         self.sandbox = NoopSandbox()
+        # Legacy no-op boundary, kept until every caller uses the store.
         self.memory_manager = NoopMemoryManager()
+        # Real markdown-backed store for memory and the knowledge base.
+        self.memory_store = MarkdownMemoryStore(self.workspace.memory.root)
         self.agents: dict[str, AgentDefinition] = {}
         self.workflows: dict[str, WorkflowDefinition] = {}
         self.running = False
