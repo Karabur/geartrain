@@ -1,7 +1,7 @@
 ---
 id: GT-P2-01
 phase: 2
-status: todo
+status: done
 depends_on: 
   - GT-P1-06
 ---

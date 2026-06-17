@@ -12,3 +12,5 @@ yarn-error.log*
 .idea
 .venv
 geartrain.egg-info
+__pycache__/
+*.pyc
