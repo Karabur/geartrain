@@ -169,6 +169,10 @@ class WorkflowRunner:
             node_context["task"] = resolved_inputs.get("task", context.get("trigger_task", ""))
             # Merge all resolved inputs as top-level context keys
             node_context.update(resolved_inputs)
+            # Run identity so in-process tools tag memory writes and events.
+            node_context["run_id"] = run_id
+            node_context["node_id"] = current_node_id
+            node_context["workflow"] = self.workflow.name
             # last_output for decision nodes
             node_context["last_output"] = list(node_outputs.values())[-1] if node_outputs else ""
             node_context["prior_outputs"] = list(node_outputs.items())
@@ -216,13 +220,22 @@ class WorkflowRunner:
         node_def: dict,
         context: dict,
     ) -> NodeResult:
+        attempt_id = f"{node_id}#1"
         if node_type == "agent":
-            agent_runner = AgentNodeRunner(self.agents)
+            agent_runner = AgentNodeRunner(
+                self.agents,
+                event_sink=self._node_event_sink(run_id, node_id),
+                attempt_id=attempt_id,
+            )
             return agent_runner.run(node_def, context)
         elif node_type == "decision":
             return DecisionNodeRunner().run(node_def, context)
         elif node_type == "human_checkpoint":
-            runner = HumanCheckpointRunner(input_fn=self._checkpoint_input_fn)
+            runner = HumanCheckpointRunner(
+                input_fn=self._checkpoint_input_fn,
+                event_sink=self._node_event_sink(run_id, node_id),
+                checkpoint_store=self._checkpoint_recorder(run_id, node_id),
+            )
             return runner.run(node_def, context)
         elif node_type == "integration":
             runner = IntegrationNodeRunner(
@@ -248,6 +261,10 @@ class WorkflowRunner:
 
         return sink
 
+    def _checkpoint_recorder(self, run_id: str, node_id: str) -> "_CheckpointRecorder":
+        """Return a checkpoint recorder bound to a run and node."""
+        return _CheckpointRecorder(self.state_backend, run_id, node_id)
+
     def _handle_failure(self, run_id: str, error_msg: str) -> None:
         """Log the error, record a failure summary, and mark the run as failed."""
         self._event(
@@ -268,3 +285,33 @@ class WorkflowRunner:
             f"[geartrain] workflow {self.workflow.name!r} run {run_id!r} failed: {error_msg}",
             file=sys.stderr,
         )
+
+
+class _CheckpointRecorder:
+    """Persists a checkpoint's lifecycle to the run state backend.
+
+    ``create`` writes a ``waiting`` checkpoint and returns its id; ``respond``
+    marks it ``responded``. Failures are swallowed so a state-write problem
+    never aborts an otherwise-working checkpoint.
+    """
+
+    def __init__(self, backend: "FileStateBackend", run_id: str, node_id: str) -> None:
+        self._backend = backend
+        self._run_id = run_id
+        self._node_id = node_id
+
+    def create(self, prompt: str, mode: str) -> str:
+        checkpoint_id = f"{self._node_id}-cp"
+        try:
+            self._backend.write_checkpoint(
+                self._run_id, checkpoint_id, self._node_id, prompt, mode=mode
+            )
+        except Exception:
+            pass
+        return checkpoint_id
+
+    def respond(self, checkpoint_id: str, response: str) -> None:
+        try:
+            self._backend.respond_checkpoint(self._run_id, checkpoint_id, response)
+        except Exception:
+            pass

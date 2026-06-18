@@ -43,9 +43,40 @@ class ToolResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+_TOOL_CATEGORIES = {
+    "file_read": "file",
+    "file_write": "file",
+    "project_search": "file",
+    "shell_exec": "shell",
+    "git_status": "git",
+    "git_diff": "git",
+    "git_commit": "git",
+    "git_branch": "git",
+    "memory_read": "memory",
+    "memory_write": "memory",
+    "kb_read": "memory",
+    "kb_write": "memory",
+    "github_create_branch": "github",
+    "github_commit": "github",
+    "github_create_pr": "github",
+    "github_get_issue": "github",
+    "github_update_issue": "github",
+}
+
+
+def tool_category(name: str) -> str:
+    """Classify a tool by name so events can be grouped without leaking inputs."""
+    return _TOOL_CATEGORIES.get(name, "other")
+
+
 @dataclass
 class ToolEvent:
-    """A recorded tool call, carrying everything a Phase 7 event needs."""
+    """A recorded tool call, carrying everything a Phase 7 event needs.
+
+    ``metadata`` holds the originating :class:`ToolResult` metadata — for memory
+    tools this is the scope/path/source detail a memory event needs. It is never
+    handed to the model and never carries raw sensitive inputs.
+    """
 
     name: str
     input_summary: str
@@ -53,11 +84,14 @@ class ToolEvent:
     status: str
     duration_ms: float
     error: str = ""
+    category: str = "other"
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Return the event as a plain dict for serialization."""
         return {
             "name": self.name,
+            "category": self.category,
             "input_summary": self.input_summary,
             "output_summary": self.output_summary,
             "status": self.status,
@@ -109,6 +143,8 @@ def build_tool(
                 status=result.status,
                 duration_ms=duration_ms,
                 error=result.error,
+                category=tool_category(name),
+                metadata=result.metadata,
             )
         )
         return result.output

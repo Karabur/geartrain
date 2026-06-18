@@ -203,8 +203,16 @@ class TestWorkflowStartEndpoint:
         resp = client.post("/workflows/nonexistent/start")
         assert resp.status_code == 404
 
-    def test_workflow_start_not_404(self, project_dir: Path):
-        """Known workflow start endpoint returns a non-404 response."""
+    def test_workflow_start_not_404(self, project_dir: Path, monkeypatch):
+        """Known workflow start endpoint returns a non-404 response.
+
+        The scaffold's ``repo_root`` and engine ``state.path`` are relative, and
+        the start endpoint resolves the ``work/`` task folder and run state
+        against the working directory. Run from inside the scaffold so the
+        endpoint reads the scaffold's empty task folders (returning ``no_tasks``)
+        instead of escaping to and mutating the real repo.
+        """
+        monkeypatch.chdir(project_dir)
         client = self._make_client(project_dir)
         resp = client.post("/workflows/geartrain-dev/start")
         assert resp.status_code != 404

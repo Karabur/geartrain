@@ -95,12 +95,14 @@ class TestToolEvents:
         # Event is serializable for a Phase 7 tool-call event.
         assert set(write_event.to_dict()) == {
             "name",
+            "category",
             "input_summary",
             "output_summary",
             "status",
             "duration_ms",
             "error",
         }
+        assert write_event.to_dict()["category"] == "file"
 
     def test_failure_records_error_event(self, tmp_path):
         recorder = ToolRecorder()

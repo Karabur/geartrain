@@ -16,6 +16,11 @@ from pathlib import Path
 
 from geartrain.engine.app import EngineApp
 from geartrain.engine.loader import load_engine
+from geartrain.engine.observability import (
+    render_summary,
+    render_timeline,
+    summarize_run,
+)
 from geartrain.engine.service import create_app as create_http_app
 from geartrain.engine.state import FileStateBackend
 from geartrain.engine.validator import format_diagnostics, validate_all
@@ -229,6 +234,59 @@ def _run_workflow_start(workflow_name: str = "geartrain-dev") -> None:
         sys.exit(1)
 
 
+# --- Run observability ------------------------------------------------------
+
+
+def _state_backend() -> FileStateBackend:
+    """Build a state backend pointed at the local engine state directory."""
+    engine_path = Path.cwd() / ".geartrain" / "engines" / "local.engine.yaml"
+    try:
+        engine = load_engine(str(engine_path))
+        state_path = Path(engine.state.path)
+    except FileNotFoundError:
+        state_path = Path.cwd() / ".geartrain" / "state"
+    return FileStateBackend(state_path)
+
+
+def _run_run_list() -> None:
+    """List recorded runs, newest first."""
+    backend = _state_backend()
+    runs = backend.list_runs()
+    if not runs:
+        print("No runs found.")
+        return
+    for run in runs:
+        print(
+            f"{run.get('run_id', '?')}  "
+            f"[{run.get('status', '?')}]  "
+            f"{run.get('workflow', '?')}  "
+            f"{run.get('started_at', '')}"
+        )
+
+
+def _run_run_summary(run_id: str) -> None:
+    """Print a compact summary of one run."""
+    backend = _state_backend()
+    try:
+        summary = summarize_run(backend, run_id)
+    except (FileNotFoundError, ValueError):
+        print(f"Unknown run: {run_id}")
+        sys.exit(1)
+    events_log = str(backend.state_path / "runs" / run_id / "events.jsonl")
+    print(render_summary(summary, events_log=events_log))
+
+
+def _run_run_events(run_id: str) -> None:
+    """Print the ordered event timeline for one run."""
+    backend = _state_backend()
+    try:
+        backend.read_run_state(run_id)
+    except (FileNotFoundError, ValueError):
+        print(f"Unknown run: {run_id}")
+        sys.exit(1)
+    print(render_timeline(backend.read_events(run_id)))
+
+
 # --- Parser -----------------------------------------------------------------
 
 
@@ -267,6 +325,15 @@ def build_parser() -> argparse.ArgumentParser:
     workflow_sub = workflow.add_subparsers(dest="workflow_action")
     workflow_sub.add_parser("start", help="Start a workflow run")
 
+    # -- run --
+    run = subparsers.add_parser("run", help="Inspect workflow runs")
+    run_sub = run.add_subparsers(dest="run_action")
+    run_sub.add_parser("list", help="List recorded runs")
+    run_summary = run_sub.add_parser("summary", help="Show a run summary")
+    run_summary.add_argument("run_id", help="Run id to summarize")
+    run_events = run_sub.add_parser("events", help="Show a run's event timeline")
+    run_events.add_argument("run_id", help="Run id to inspect")
+
     return parser
 
 
@@ -303,6 +370,16 @@ def main(argv: list[str] | None = None) -> None:
             parser.parse_args(["workflow", "-h"])
         elif args.workflow_action == "start":
             _run_workflow_start()
+
+    elif args.command == "run":
+        if not args.run_action:
+            parser.parse_args(["run", "-h"])
+        elif args.run_action == "list":
+            _run_run_list()
+        elif args.run_action == "summary":
+            _run_run_summary(args.run_id)
+        elif args.run_action == "events":
+            _run_run_events(args.run_id)
 
 
 if __name__ == "__main__":

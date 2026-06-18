@@ -180,16 +180,23 @@ class FileStateBackend:
         status: str,
         current_node: str | None = None,
     ) -> None:
-        """Update the status and current_node fields in a run state file."""
+        """Update the status and current_node fields in a run state file.
+
+        Terminal statuses (``completed``/``failed``) also stamp ``ended_at`` so
+        observability can report a run duration.
+        """
         run_file = self.state_path / "runs" / run_id / "run.md"
         state = _read_md(run_file)
         state["status"] = status
         state["current_node"] = current_node
+        if status in ("completed", "failed") and not state.get("ended_at"):
+            state["ended_at"] = _now_iso()
         body = (
             f"# Run: {run_id}\n\n"
             f"**Workflow**: {state.get('workflow', '?')}\n"
             f"**Status**: {status}\n"
             f"**Started**: {state.get('started_at', 'unknown')}"
+            + (f"\n**Ended**: {state['ended_at']}" if state.get("ended_at") else "")
             + (f"\n**Current node**: {current_node}" if current_node else "")
         )
         _write_md(run_file, state, body)
@@ -198,6 +205,46 @@ class FileStateBackend:
         """Read a run state file and return its frontmatter."""
         run_file = self.state_path / "runs" / run_id / "run.md"
         return _read_md(run_file)
+
+    def list_runs(self) -> list[dict]:
+        """Return every run's state frontmatter, newest run id first.
+
+        Runs without a readable ``run.md`` are skipped so a half-written run
+        directory never breaks the listing.
+        """
+        runs_dir = self.state_path / "runs"
+        if not runs_dir.is_dir():
+            return []
+        runs: list[dict] = []
+        for d in sorted(runs_dir.iterdir(), reverse=True):
+            if not d.is_dir():
+                continue
+            try:
+                runs.append(_read_md(d / "run.md"))
+            except (FileNotFoundError, ValueError):
+                continue
+        return runs
+
+    def list_node_outputs(self, run_id: str) -> list[dict]:
+        """Return each node output file's frontmatter in execution order.
+
+        Node files are numbered (``01-intake.md``) so a name sort matches run
+        order. The unnumbered fallback name is included after numbered files.
+        """
+        run_dir = self.state_path / "runs" / run_id
+        if not run_dir.is_dir():
+            return []
+        nodes: list[dict] = []
+        for f in sorted(run_dir.glob("*.md")):
+            if f.name in ("run.md",):
+                continue
+            try:
+                fm = _read_md(f)
+            except (FileNotFoundError, ValueError):
+                continue
+            if fm.get("node_id"):
+                nodes.append(fm)
+        return nodes
 
     # -- Node output ---------------------------------------------------------
 
@@ -294,3 +341,101 @@ class FileStateBackend:
             if line:
                 events.append(json.loads(line))
         return events
+
+    # -- Checkpoints ---------------------------------------------------------
+
+    def write_checkpoint(
+        self,
+        run_id: str,
+        checkpoint_id: str,
+        node_id: str,
+        prompt: str,
+        mode: str = "approval",
+        status: str = "waiting",
+    ) -> Path:
+        """Persist a checkpoint for a run as a queryable state file.
+
+        A checkpoint starts ``waiting`` and moves to ``responded`` once a human
+        answers it. The file lets the query API surface pending checkpoints and
+        lets the respond endpoint resume a paused run.
+        """
+        cp_dir = self.state_path / "runs" / run_id / "checkpoints"
+        fm = {
+            "schema_version": 1,
+            "checkpoint_id": checkpoint_id,
+            "run_id": run_id,
+            "node_id": node_id,
+            "mode": mode,
+            "prompt": prompt,
+            "status": status,
+            "response": None,
+            "created_at": _now_iso(),
+            "responded_at": None,
+        }
+        body = (
+            f"# Checkpoint: {checkpoint_id}\n\n"
+            f"**Run**: {run_id}\n"
+            f"**Node**: {node_id}\n"
+            f"**Status**: {status}\n\n"
+            f"{prompt}"
+        )
+        return _write_md(cp_dir / f"{checkpoint_id}.md", fm, body)
+
+    def read_checkpoint(self, run_id: str, checkpoint_id: str) -> dict:
+        """Read one checkpoint's frontmatter."""
+        cp_file = (
+            self.state_path / "runs" / run_id / "checkpoints" / f"{checkpoint_id}.md"
+        )
+        return _read_md(cp_file)
+
+    def list_checkpoints(
+        self, run_id: str | None = None, status: str | None = None
+    ) -> list[dict]:
+        """List checkpoints, optionally limited to one run and/or status."""
+        runs_dir = self.state_path / "runs"
+        if not runs_dir.is_dir():
+            return []
+        if run_id is not None:
+            run_ids = [run_id]
+        else:
+            run_ids = [d.name for d in runs_dir.iterdir() if d.is_dir()]
+
+        out: list[dict] = []
+        for rid in sorted(run_ids):
+            cp_dir = runs_dir / rid / "checkpoints"
+            if not cp_dir.is_dir():
+                continue
+            for f in sorted(cp_dir.glob("*.md")):
+                try:
+                    fm = _read_md(f)
+                except (FileNotFoundError, ValueError):
+                    continue
+                if status is None or fm.get("status") == status:
+                    out.append(fm)
+        return out
+
+    def respond_checkpoint(
+        self, run_id: str, checkpoint_id: str, response: str
+    ) -> dict:
+        """Record a human response on a checkpoint and mark it responded.
+
+        Returns the updated frontmatter. Raises ``FileNotFoundError`` for an
+        unknown checkpoint.
+        """
+        cp_file = (
+            self.state_path / "runs" / run_id / "checkpoints" / f"{checkpoint_id}.md"
+        )
+        fm = _read_md(cp_file)
+        fm["status"] = "responded"
+        fm["response"] = response
+        fm["responded_at"] = _now_iso()
+        body = (
+            f"# Checkpoint: {checkpoint_id}\n\n"
+            f"**Run**: {run_id}\n"
+            f"**Node**: {fm.get('node_id', '?')}\n"
+            f"**Status**: responded\n"
+            f"**Response**: {response}\n\n"
+            f"{fm.get('prompt', '')}"
+        )
+        _write_md(cp_file, fm, body)
+        return fm

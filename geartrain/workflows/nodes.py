@@ -34,10 +34,25 @@ class NodeRunner(Protocol):
 
 
 class AgentNodeRunner:
-    """Runs an agent and follows the default transition."""
+    """Runs an agent and follows the default transition.
 
-    def __init__(self, agents: dict[str, "AgentRunner"]) -> None:
+    When the agent runner exposes a :class:`ToolRecorder` (the in-process
+    langchain runner does), recorded tool calls are flushed to ``event_sink``
+    as ``tool_call`` events, plus ``memory_read``/``memory_write``/
+    ``memory_write_rejected`` events for the memory tools. ``event_sink`` takes
+    an event type and keyword fields and defaults to a no-op so the runner stays
+    usable without a run store.
+    """
+
+    def __init__(
+        self,
+        agents: dict[str, "AgentRunner"],
+        event_sink: Callable[..., None] | None = None,
+        attempt_id: str | None = None,
+    ) -> None:
         self._agents = agents
+        self._event = event_sink or (lambda *a, **k: None)
+        self._attempt_id = attempt_id
 
     def run(self, node_def: dict, context: dict) -> NodeResult:
         agent_key = node_def.get("agent", "")
@@ -48,9 +63,72 @@ class AgentNodeRunner:
         task = context.get("task", "")
         output = runner.run(task, context)
 
+        self._flush_tool_events(runner)
+
         transitions = node_def.get("transitions", {})
         next_node = transitions.get("default")
         return NodeResult(output=output, next_node=next_node)
+
+    def _flush_tool_events(self, runner: "AgentRunner") -> None:
+        """Emit run events for each tool call the agent recorded."""
+        recorder = getattr(runner, "recorder", None)
+        if recorder is None:
+            return
+        for event in recorder.events:
+            self._event(
+                "tool_call",
+                kind=event.category,
+                name=event.name,
+                status=event.status,
+                duration_ms=event.duration_ms,
+                input_summary=event.input_summary,
+                summary=event.output_summary,
+                error=event.error,
+                attempt_id=self._attempt_id,
+            )
+            if event.category == "memory":
+                self._emit_memory_event(event)
+
+    def _emit_memory_event(self, event) -> None:
+        """Translate a recorded memory tool call into a memory event."""
+        meta = event.metadata or {}
+        name = event.name
+        common = {
+            "scope": meta.get("scope", ""),
+            "system": meta.get("system", ""),
+            "path": meta.get("path", ""),
+            "source_run": meta.get("source_run", ""),
+            "source_node": meta.get("source_node", ""),
+            "source_agent": meta.get("source_agent", ""),
+            "attempt_id": self._attempt_id,
+        }
+        if name in ("memory_read", "kb_read"):
+            self._event(
+                "memory_read",
+                query=meta.get("query", ""),
+                scopes=meta.get("scopes", []),
+                count=meta.get("count", 0),
+                paths=meta.get("paths", []),
+                **{k: v for k, v in common.items() if k != "path"},
+            )
+            return
+
+        # write path: ok, guardrail-rejected, or scope/validation error
+        if event.status == "error":
+            reason = "guardrail" if event.error == "guardrail" else event.error
+            self._event(
+                "memory_write_rejected",
+                reason=reason or "rejected",
+                review_status=meta.get("review_status", "unreviewed"),
+                **common,
+            )
+        else:
+            self._event(
+                "memory_write",
+                category=meta.get("category", ""),
+                review_status=meta.get("review_status", "unreviewed"),
+                **common,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -84,17 +162,29 @@ class HumanCheckpointRunner:
     """Pauses for CLI input and routes based on the response.
 
     Emits the checkpoint prompt to stdout, reads a response from stdin,
-    then follows the approved/rejected transition.
+    then follows the approved/rejected transition. When a ``checkpoint_store``
+    is given, the checkpoint's creation and resolution are persisted as
+    queryable state, and ``event_sink`` records ``checkpoint_created`` and
+    ``checkpoint_resolved`` events for observability.
     """
 
-    def __init__(self, input_fn=None) -> None:
+    def __init__(self, input_fn=None, event_sink=None, checkpoint_store=None) -> None:
         # Allows tests to inject a fake input function
         self._input = input_fn or input
+        self._event = event_sink or (lambda *a, **k: None)
+        self._store = checkpoint_store
 
     def run(self, node_def: dict, context: dict) -> NodeResult:
         prompt = node_def.get("prompt", "Approve? [y/n]")
         mode = node_def.get("mode", "approval")
         transitions = node_def.get("transitions", {})
+
+        checkpoint_id = None
+        if self._store is not None:
+            checkpoint_id = self._store.create(prompt, mode)
+        self._event(
+            "checkpoint_created", checkpoint_id=checkpoint_id, mode=mode, prompt=prompt
+        )
 
         print(f"\n[checkpoint] {prompt}")
 
@@ -103,12 +193,21 @@ class HumanCheckpointRunner:
             approved = response in ("y", "yes", "approve", "approved")
             key = "approved" if approved else "rejected"
             next_node = transitions.get(key, transitions.get("default"))
+            self._resolve(checkpoint_id, key)
             return NodeResult(output=f"Checkpoint response: {key}", next_node=next_node)
         else:
             # input mode — capture free text
             response = self._input("  Response: ").strip()
             next_node = transitions.get("default")
+            self._resolve(checkpoint_id, response)
             return NodeResult(output=response, next_node=next_node)
+
+    def _resolve(self, checkpoint_id, response: str) -> None:
+        if self._store is not None and checkpoint_id is not None:
+            self._store.respond(checkpoint_id, response)
+        self._event(
+            "checkpoint_resolved", checkpoint_id=checkpoint_id, response=response
+        )
 
 
 # ---------------------------------------------------------------------------

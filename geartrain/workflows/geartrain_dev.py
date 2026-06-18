@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -22,6 +23,22 @@ def _append_log_line(log_file: Path, run_id: str, task_name: str, status: str) -
     line = f"{ts} | run={run_id} | task={task_name} | status={status}\n"
     with log_file.open("a", encoding="utf-8") as f:
         f.write(line)
+
+
+def _append_event_log(
+    log_file: Path, run_id: str, events: list[dict]
+) -> None:
+    """Append a run's events to the workflow's machine-readable JSONL log.
+
+    Mirrors the per-run ``events.jsonl`` into a workflow-level log
+    (``<workflow>.events.jsonl``) so dogfooding has one stream to tail across
+    runs. Each line is tagged with its run id.
+    """
+    events_log = log_file.with_suffix(".events.jsonl")
+    events_log.parent.mkdir(parents=True, exist_ok=True)
+    with events_log.open("a", encoding="utf-8") as f:
+        for ev in events:
+            f.write(json.dumps({"run_id": run_id, **ev}) + "\n")
 
 
 def run_geartrain_dev(
@@ -80,8 +97,16 @@ def run_geartrain_dev(
         f"Task file: {task_file.path}\n\n{task_content}"
     )
 
-    result = runner.run(run_id=run_id, trigger_task=trigger_task)
+    try:
+        result = runner.run(run_id=run_id, trigger_task=trigger_task)
+    except Exception:
+        # Record the failed run's log lines before propagating so a failure is
+        # always inspectable in both the human and machine-readable logs.
+        _append_log_line(log_file, run_id, task_file.path.name, "failed")
+        _append_event_log(log_file, run_id, state_backend.read_events(run_id))
+        raise
 
     _append_log_line(log_file, run_id, task_file.path.name, result.get("status", "?"))
+    _append_event_log(log_file, run_id, state_backend.read_events(run_id))
 
     return result

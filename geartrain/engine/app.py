@@ -12,6 +12,7 @@ from geartrain.engine.sandbox import NoopSandbox
 from geartrain.engine.state import FileStateBackend, create_state_backend
 from geartrain.memory.markdown import MarkdownMemoryStore
 from geartrain.memory.noop import NoopMemoryManager
+from geartrain.workflows.checkpoints import CheckpointCoordinator
 
 
 class EngineApp:
@@ -32,6 +33,9 @@ class EngineApp:
         self.memory_manager = NoopMemoryManager()
         # Real markdown-backed store for memory and the knowledge base.
         self.memory_store = MarkdownMemoryStore(self.workspace.memory.root)
+        # Coordinates human-checkpoint pause/resume between the run thread and
+        # the HTTP respond endpoint (Phase 7 observability).
+        self.checkpoint_coordinator = CheckpointCoordinator()
         self.agents: dict[str, AgentDefinition] = {}
         self.workflows: dict[str, WorkflowDefinition] = {}
         self.running = False
