@@ -9,7 +9,7 @@ from geartrain.engine.loader import load_workflow
 from geartrain.engine.observability import render_summary, summarize_run
 from geartrain.engine.state import FileStateBackend
 from geartrain.memory.markdown import MarkdownMemoryStore
-from geartrain.workflows.geartrain_dev import run_geartrain_dev
+from geartrain.workflows.start import run_workflow
 from tests.observability_helpers import (
     _agent,
     _failing_workflow,
@@ -105,14 +105,14 @@ class TestEventLogFiles:
             ),
         }
         log_file = tmp_path / "logs" / "geartrain-dev.md"
-        result = run_geartrain_dev(
+        result = run_workflow(
             _dev_workflow(tmp_path),
             agents,
             backend,
             state_path,
-            work_dir,
-            "run-1",
             log_file,
+            "run-1",
+            work_dir=work_dir,
         )
         assert result["status"] == "completed"
         assert log_file.exists()
@@ -137,16 +137,15 @@ class TestEventLogFiles:
         }
         log_file = tmp_path / "logs" / "fail-wf.md"
         with pytest.raises(Exception):
-            run_geartrain_dev(
+            run_workflow(
                 _failing_workflow(tmp_path),
                 agents,
                 backend,
                 state_path,
-                work_dir,
-                "run-2",
                 log_file,
-                None,
-                {},
+                "run-2",
+                work_dir=work_dir,
+                integrations={},
             )
         assert log_file.exists()
         assert "status=failed" in log_file.read_text()

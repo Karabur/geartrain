@@ -303,6 +303,22 @@ class TestWrongFieldType:
         with pytest.raises(ValidationError):
             load_workflow(str(f))
 
+    def test_unknown_trigger_type_rejected(self, tmp_path):
+        """An unknown trigger type fails validation."""
+        f = tmp_path / "workflow.yaml"
+        f.write_text(dedent("""\
+            schema_version: 1
+            name: test-wf
+            trigger:
+              type: work_queue
+            graph:
+              entry: start
+              nodes: {}
+        """))
+        with pytest.raises(ValidationError):
+            load_workflow(str(f))
+
+
 
 class TestInvalidSchemaVersion:
     """Invalid schema_version produces a clear error."""

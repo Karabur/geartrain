@@ -253,11 +253,29 @@ class AgentDefinition(_SchemaBase):
 
 # --- Workflow definitions --------------------------------------------------
 
+# Trigger types the engine accepts as declarative metadata. The only runtime
+# behavior is "run the workflow from its entry node"; the type records intent
+# and gates unknown values. Add types here as real triggers are implemented.
+KNOWN_TRIGGER_TYPES = ("manual",)
+
+
 class WorkflowTrigger(BaseModel):
-    """Workflow trigger configuration."""
+    """Workflow trigger configuration.
+
+    ``type`` is declarative metadata, validated against ``KNOWN_TRIGGER_TYPES``.
+    """
 
     model_config = ConfigDict(extra="forbid")
     type: str
+
+    @model_validator(mode="after")
+    def _check_type(self) -> Self:
+        if self.type not in KNOWN_TRIGGER_TYPES:
+            raise ValueError(
+                f"unknown trigger type {self.type!r}; "
+                f"expected one of {list(KNOWN_TRIGGER_TYPES)}"
+            )
+        return self
 
 
 class WorkflowGraph(BaseModel):

@@ -13,11 +13,9 @@ from starlette.testclient import TestClient
 from geartrain.engine.app import EngineApp
 from geartrain.engine.service import create_app
 from geartrain.engine.state import FileStateBackend
-from geartrain.work.tasks import move_to_in_progress
 from geartrain.workflows.engine import WorkflowRunError, WorkflowRunner
-from geartrain.workflows.factory import WorkflowFactory
-from geartrain.workflows.geartrain_dev import run_geartrain_dev
 from geartrain.workflows.lock import WorkflowLock
+from geartrain.workflows.start import run_workflow
 
 ROOT = Path(__file__).parent.parent
 
@@ -203,18 +201,15 @@ class TestWorkflowStartEndpoint:
         resp = client.post("/workflows/nonexistent/start")
         assert resp.status_code == 404
 
-    def test_workflow_start_not_404(self, project_dir: Path, monkeypatch):
+    def test_workflow_start_not_404(self, project_dir: Path):
         """Known workflow start endpoint returns a non-404 response.
 
-        The scaffold's ``repo_root`` and engine ``state.path`` are relative, and
-        the start endpoint resolves the ``work/`` task folder and run state
-        against the working directory. Run from inside the scaffold so the
-        endpoint reads the scaffold's empty task folders (returning ``no_tasks``)
-        instead of escaping to and mutating the real repo.
+        The engine anchors its state, logs, and work paths to the config
+        location at load, so the endpoint never depends on the working
+        directory and writes only inside the scaffold.
         """
-        monkeypatch.chdir(project_dir)
         client = self._make_client(project_dir)
-        resp = client.post("/workflows/geartrain-dev/start")
+        resp = client.post("/workflows/geartrain-dev/start", json={"task": "do X"})
         assert resp.status_code != 404
 
 
@@ -257,66 +252,163 @@ class TestWorkflowLockSmoke:
 
 
 class TestStateAndLogWrites:
-    def test_run_writes_state_files(self, project_dir: Path):
+    """The generic run path writes run state and both log streams."""
+
+    def test_run_writes_state_and_logs(self, project_dir: Path):
         from geartrain.engine.loader import load_workflow
-        from geartrain.engine.state import FileStateBackend
 
         state_path = project_dir / ".geartrain" / "state"
         wf_path = project_dir / ".geartrain" / "workflows" / "geartrain-dev.workflow.yaml"
         wf = load_workflow(str(wf_path))
         backend = FileStateBackend(state_path)
-        work_dir = project_dir / "work"
         log_file = project_dir / ".geartrain" / "logs" / "geartrain-dev.md"
 
-        # Create a task in todo/
-        task = work_dir / "todo" / "p1-01-my-task.md"
-        task.write_text("---\nid: GT-TEST\n---\n# Task\n\nDo the thing.\n")
-
-        result = run_geartrain_dev(
+        result = run_workflow(
             workflow=wf,
-            agents={"coder": MockAgentRunner("coder done"), "lead": MockAgentRunner("lead done")},
+            agents={
+                "coder": MockAgentRunner("coder done"),
+                "lead": MockAgentRunner("lead done"),
+            },
             state_backend=backend,
             state_path=state_path,
-            work_dir=work_dir,
-            run_id="2026-06-17-geartrain-dev-001",
             log_file=log_file,
+            run_id="2026-06-17-geartrain-dev-001",
+            task="implement feature X",
         )
 
         assert result["status"] == "completed"
 
-        # run.md written
         run_state = backend.read_run_state("2026-06-17-geartrain-dev-001")
         assert run_state["status"] == "completed"
 
-        # Log line written
         assert log_file.exists()
-        log_text = log_file.read_text()
-        assert "2026-06-17-geartrain-dev-001" in log_text
-        assert "p1-01-my-task.md" in log_text
+        assert "2026-06-17-geartrain-dev-001" in log_file.read_text()
+        events_log = log_file.with_suffix(".events.jsonl")
+        assert events_log.exists()
+        assert "2026-06-17-geartrain-dev-001" in events_log.read_text()
 
-        # Task moved to in-progress
-        assert (work_dir / "in-progress" / "p1-01-my-task.md").exists()
-        assert not task.exists()
-
-    def test_no_task_returns_no_tasks_status(self, project_dir: Path):
+    def test_run_does_not_touch_work_folder(self, project_dir: Path):
+        """The generic run path never scans or mutates ``work/``."""
         from geartrain.engine.loader import load_workflow
-        from geartrain.engine.state import FileStateBackend
+
+        work_todo = project_dir / "work" / "todo"
+        task = work_todo / "p1-01-my-task.md"
+        task.write_text("---\nid: GT-TEST\n---\n# Task\n")
 
         state_path = project_dir / ".geartrain" / "state"
         wf_path = project_dir / ".geartrain" / "workflows" / "geartrain-dev.workflow.yaml"
         wf = load_workflow(str(wf_path))
-        backend = FileStateBackend(state_path)
 
-        result = run_geartrain_dev(
+        run_workflow(
             workflow=wf,
             agents={"coder": MockAgentRunner(), "lead": MockAgentRunner()},
-            state_backend=backend,
+            state_backend=FileStateBackend(state_path),
             state_path=state_path,
-            work_dir=project_dir / "work",
-            run_id="run-001",
             log_file=project_dir / ".geartrain" / "logs" / "geartrain-dev.md",
+            run_id="run-001",
         )
-        assert result["status"] == "no_tasks"
+
+        # The task stays put; no todo -> in-progress move happens.
+        assert task.exists()
+        assert not (project_dir / "work" / "in-progress" / "p1-01-my-task.md").exists()
+
+
+# ---------------------------------------------------------------------------
+# Generic, config-driven start path
+# ---------------------------------------------------------------------------
+
+
+class TestGenericStart:
+    """The engine starts any registered workflow by name, naming none in source."""
+
+    def _runner_for(self, app):
+        # Replace real agent runners with deterministic mocks so the start path
+        # runs end to end without subprocesses.
+        return lambda agent_def: MockAgentRunner(f"{agent_def.name} done")
+
+    def test_start_runs_from_entry_node(self, isolated_engine):
+        from geartrain.workflows.start import start_workflow
+
+        result = start_workflow(
+            isolated_engine,
+            "sample-dev",
+            task="implement feature X",
+            build_runner=self._runner_for(isolated_engine),
+        )
+        assert result["status"] == "completed"
+        # Entry node ran first; both nodes produced output.
+        assert result["node_outputs"]["coder_output"] == "coder done"
+        assert result["node_outputs"]["lead_output"] == "lead done"
+
+    def test_task_seeds_trigger_task(self, isolated_engine):
+        from geartrain.workflows.start import start_workflow
+
+        seen: dict[str, str] = {}
+
+        def build_runner(agent_def):
+            def run(task, context):
+                seen[agent_def.name] = task
+                return f"{agent_def.name} ok"
+            runner = MockAgentRunner()
+            runner.run = run
+            return runner
+
+        start_workflow(
+            isolated_engine,
+            "sample-dev",
+            task="do the thing",
+            build_runner=build_runner,
+        )
+        # The entry node's task input resolves ${trigger.task} to the passed task.
+        assert seen["coder"] == "do the thing"
+
+    def test_second_named_workflow_runs_without_work_folder(self, isolated_engine, isolated_project):
+        from geartrain.workflows.start import start_workflow
+
+        # A pre-existing task must be left untouched by any workflow start.
+        task = isolated_project / "work" / "todo" / "keepme.md"
+        task.write_text("---\nid: T\n---\n# Keep\n")
+
+        result = start_workflow(
+            isolated_engine,
+            "other-flow",
+            build_runner=self._runner_for(isolated_engine),
+        )
+        assert result["status"] == "completed"
+        assert result["workflow"] == "other-flow"
+        assert task.exists()
+        assert not (isolated_project / "work" / "in-progress" / "keepme.md").exists()
+
+    def test_unknown_workflow_returns_error(self, isolated_engine):
+        from geartrain.workflows.start import start_workflow
+
+        result = start_workflow(
+            isolated_engine,
+            "no-such-flow",
+            build_runner=self._runner_for(isolated_engine),
+        )
+        assert "error" in result
+
+    def test_start_is_cwd_independent(self, isolated_engine, isolated_project, tmp_path, monkeypatch):
+        from geartrain.workflows.start import start_workflow
+
+        # Start from an unrelated cwd. Absolute path resolution must keep all
+        # writes inside the scaffold, never the cwd.
+        other = tmp_path / "elsewhere"
+        other.mkdir()
+        monkeypatch.chdir(other)
+
+        result = start_workflow(
+            isolated_engine,
+            "sample-dev",
+            build_runner=self._runner_for(isolated_engine),
+        )
+        assert result["status"] == "completed"
+
+        run_id = result["run_id"]
+        # State landed under the scaffold, not the cwd.
+        assert (isolated_project / ".geartrain" / "state" / "runs" / run_id / "run.md").exists()
+        assert not (other / ".geartrain").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -338,7 +430,7 @@ class TestDirectLeadCallSmoke:
         """geartrain workflow start prints 'not running' when engine is down."""
         monkeypatch.chdir(tmp_path)
         result = subprocess.run(
-            [sys.executable, "-m", "geartrain.cli", "workflow", "start"],
+            [sys.executable, "-m", "geartrain.cli", "workflow", "start", "geartrain-dev"],
             capture_output=True,
             text=True,
         )

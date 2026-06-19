@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import Path
+import re
 
 from starlette.applications import Starlette
 from starlette.routing import Route
@@ -14,8 +14,17 @@ from geartrain.agents.factory import AgentFactory
 from geartrain.engine.app import EngineApp
 from geartrain.engine.config import AgentDefinition
 from geartrain.engine.observability import attempts_for_run, summarize_run
-from geartrain.engine.state import generate_run_id
 from geartrain.memory.store import MemoryScope, MemorySystem
+from geartrain.workflows.start import start_workflow
+
+
+def _parse_workflow_start_tool(output: str) -> str | None:
+    """Extract the workflow name from a ``GEARTRAIN_TOOL workflow start`` line.
+
+    Returns the name after the marker, or ``None`` when none is given.
+    """
+    m = re.search(r"GEARTRAIN_TOOL workflow start\s+(\S+)", output)
+    return m.group(1) if m else None
 
 # Streaming poll cadence and ceiling. Small enough that a live event appended
 # during a stream is delivered promptly; bounded so a stream never hangs.
@@ -104,56 +113,31 @@ def create_app(engine_app: EngineApp) -> Starlette:
         except RuntimeError as exc:
             return JSONResponse({"error": str(exc)}, status_code=500)
 
-        # Detect GEARTRAIN_TOOL workflow start in agent output
+        # Detect GEARTRAIN_TOOL workflow start in agent output. The workflow
+        # name is parsed from the tool invocation; the engine names none.
         tool_result = None
         if "GEARTRAIN_TOOL workflow start" in output:
-            tool_result = await _handle_workflow_start_tool(engine_app, "geartrain-dev")
+            workflow_name = _parse_workflow_start_tool(output)
+            if workflow_name:
+                tool_result = await _start_workflow_async(engine_app, workflow_name)
 
         response: dict = {"output": output}
         if tool_result is not None:
             response["tool_result"] = tool_result
         return JSONResponse(response)
 
-    async def _handle_workflow_start_tool(app: EngineApp, workflow_name: str) -> dict:
-        """Handle the 'workflow start' tool invocation from the lead agent."""
-        if workflow_name not in app.workflows:
-            return {"error": f"Unknown workflow: {workflow_name}"}
-
-        from geartrain.workflows.lock import WorkflowLock
-        state_path = Path(app.engine.state.path)
-        lock = WorkflowLock(state_path, workflow_name)
-
-        if lock.is_locked():
-            current = lock.current_run_id()
-            return {"status": "already_running", "current_run": current}
-
-        workflow_def = app.workflows[workflow_name]
-        agents = {
-            role: _build_runner(app, app.agents[agent_name])
-            for role, agent_name in workflow_def.agents.items()
-            if agent_name in app.agents
-        }
-        run_id = generate_run_id(workflow_name, state_path=state_path)
-        work_dir = Path(app.workspace.project.repo_root) / "work"
-        log_file = Path(".geartrain") / "logs" / f"{workflow_name}.md"
-
-        from geartrain.workflows.geartrain_dev import run_geartrain_dev
-        try:
-            result = await asyncio.to_thread(
-                run_geartrain_dev,
-                workflow_def,
-                agents,
-                app.state_backend,
-                state_path,
-                work_dir,
-                run_id,
-                log_file,
-                None,
-                _build_integrations(app),
-            )
-            return result
-        except Exception as exc:
-            return {"error": str(exc)}
+    async def _start_workflow_async(
+        app: EngineApp, name: str, task: str = ""
+    ) -> dict:
+        """Run the generic start path off the event loop."""
+        return await asyncio.to_thread(
+            start_workflow,
+            app,
+            name,
+            task,
+            build_runner=lambda agent_def: _build_runner(app, agent_def),
+            integrations=_build_integrations(app),
+        )
 
     async def workflow_start(request):
         name = request.path_params["name"]
@@ -162,46 +146,37 @@ def create_app(engine_app: EngineApp) -> Starlette:
                 {"error": f"Unknown workflow: {name}"}, status_code=404
             )
 
-        workflow_def = engine_app.workflows[name]
-        state_path = Path(engine_app.engine.state.path)
-        agents = {
-            role: _build_runner(engine_app, engine_app.agents[agent_name])
-            for role, agent_name in workflow_def.agents.items()
-            if agent_name in engine_app.agents
-        }
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        task = body.get("task", "") if isinstance(body, dict) else ""
 
-        from geartrain.workflows.lock import WorkflowLock
-        lock = WorkflowLock(state_path, name)
-        if lock.is_locked():
-            current = lock.current_run_id()
+        try:
+            result = await _start_workflow_async(engine_app, name, task)
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+        if result.get("status") == "already_running":
+            current = result.get("current_run")
             try:
                 state = engine_app.state_backend.read_workflow_state(name)
             except FileNotFoundError:
-                state = {"workflow_name": name, "status": "running", "current_run": current}
-            return JSONResponse({"status": "already_running", "current_run": current, "workflow_state": state})
-
-        run_id = generate_run_id(name, state_path=state_path)
-
-        from geartrain.workflows.geartrain_dev import run_geartrain_dev
-        work_dir = Path(engine_app.workspace.project.repo_root) / "work"
-        log_file = Path(".geartrain") / "logs" / f"{name}.md"
-
-        try:
-            result = await asyncio.to_thread(
-                run_geartrain_dev,
-                workflow_def,
-                agents,
-                engine_app.state_backend,
-                state_path,
-                work_dir,
-                run_id,
-                log_file,
-                None,
-                _build_integrations(engine_app),
+                state = {
+                    "workflow_name": name,
+                    "status": "running",
+                    "current_run": current,
+                }
+            return JSONResponse(
+                {
+                    "status": "already_running",
+                    "current_run": current,
+                    "workflow_state": state,
+                }
             )
-            return JSONResponse(result)
-        except Exception as exc:
-            return JSONResponse({"error": str(exc)}, status_code=500)
+        if "error" in result:
+            return JSONResponse(result, status_code=500)
+        return JSONResponse(result)
 
     async def workflow_status(request):
         name = request.path_params["name"]

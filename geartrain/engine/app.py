@@ -9,7 +9,7 @@ from typing import Any
 from geartrain.engine.config import AgentDefinition, WorkflowDefinition
 from geartrain.engine.loader import load_agent, load_engine, load_workflow, load_workspace
 from geartrain.engine.sandbox import NoopSandbox
-from geartrain.engine.state import FileStateBackend, create_state_backend
+from geartrain.engine.state import FileStateBackend
 from geartrain.memory.markdown import MarkdownMemoryStore
 from geartrain.memory.noop import NoopMemoryManager
 from geartrain.workflows.checkpoints import CheckpointCoordinator
@@ -23,11 +23,19 @@ class EngineApp:
     """
 
     def __init__(self, workspace_path: Path, engine_path: Path):
-        self.workspace_path = workspace_path
-        self.engine_path = engine_path
-        self.workspace = load_workspace(str(workspace_path))
-        self.engine = load_engine(str(engine_path))
-        self.state_backend = create_state_backend(self.engine)
+        self.workspace_path = Path(workspace_path).resolve()
+        self.engine_path = Path(engine_path).resolve()
+        self.workspace = load_workspace(str(self.workspace_path))
+        self.engine = load_engine(str(self.engine_path))
+        # Anchor all runtime paths to the config location, not the process cwd.
+        # workspace.yaml lives in .geartrain/ at the repo root, so the root is
+        # its grandparent. A start request from any directory then reads and
+        # writes the same repo.
+        self.repo_root = self._resolve_repo_root()
+        self.state_path = self._anchor(self.engine.state.path)
+        self.logs_dir = self.repo_root / ".geartrain" / "logs"
+        self.work_dir = self._anchor(self.workspace.project.repo_root) / "work"
+        self.state_backend = FileStateBackend(self.state_path)
         self.sandbox = NoopSandbox()
         # Legacy no-op boundary, kept until every caller uses the store.
         self.memory_manager = NoopMemoryManager()
@@ -41,15 +49,28 @@ class EngineApp:
         self.running = False
         self.pid: int | None = None
 
+    def _resolve_repo_root(self) -> Path:
+        """Return the repo root, anchored to the workspace config location.
+
+        Convention: workspace.yaml lives in .geartrain/ at the repo root, so the
+        root is its grandparent.
+        """
+        return self.workspace_path.parent.parent
+
+    def _anchor(self, raw: str) -> Path:
+        """Resolve a config path against the repo root unless already absolute."""
+        p = Path(raw)
+        return p if p.is_absolute() else (self.repo_root / p)
+
     def load_registries(self) -> None:
         """Load agents and workflows from registry directories."""
-        agent_dir = Path(self.workspace.registries.agents)
+        agent_dir = self._anchor(self.workspace.registries.agents)
         if agent_dir.is_dir():
             for yaml_file in sorted(agent_dir.glob("*.agent.yaml")):
                 agent = load_agent(str(yaml_file))
                 self.agents[agent.name] = agent
 
-        workflow_dir = Path(self.workspace.registries.workflows)
+        workflow_dir = self._anchor(self.workspace.registries.workflows)
         if workflow_dir.is_dir():
             for yaml_file in sorted(workflow_dir.glob("*.workflow.yaml")):
                 workflow = load_workflow(str(yaml_file))

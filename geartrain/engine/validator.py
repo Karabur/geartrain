@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from geartrain.engine.config import (
+    KNOWN_TRIGGER_TYPES,
     AgentDefinition,
     CliAgentConfig,
     LangchainAgentConfig,
@@ -373,6 +374,17 @@ def validate_workflow(
     cfg, diags = _load_workflow_safe(path)
     if cfg is None:
         return diags
+
+    # Trigger type is declarative metadata; reject unknown values.
+    if cfg.trigger.type not in KNOWN_TRIGGER_TYPES:
+        diags.append(Diagnostic(
+            file=path, line=None, sev="error",
+            fps="workflow.trigger.type",
+            message=(
+                f"unknown trigger type {cfg.trigger.type!r} — "
+                f"expected one of {list(KNOWN_TRIGGER_TYPES)}"
+            ),
+        ))
 
     # Agent references: values in workflow.agents should exist in agent registry
     for role, agent_name in cfg.agents.items():

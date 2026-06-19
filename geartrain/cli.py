@@ -196,8 +196,11 @@ def _run_engine_stop() -> None:
         print("Engine is not running")
 
 
-def _run_workflow_start(workflow_name: str = "geartrain-dev") -> None:
-    """Send a start request to the running engine and print the result."""
+def _run_workflow_start(workflow_name: str, task: str = "") -> None:
+    """Send a start request to the running engine and print the result.
+
+    ``task`` is optional and seeds ``trigger.task`` for the run.
+    """
     engine_path = Path.cwd() / ".geartrain" / "engines" / "local.engine.yaml"
     try:
         engine = load_engine(str(engine_path))
@@ -207,9 +210,15 @@ def _run_workflow_start(workflow_name: str = "geartrain-dev") -> None:
         host = "127.0.0.1"
         port = 8420
 
+    body = json.dumps({"task": task}).encode()
     try:
         conn = http.client.HTTPConnection(host, port, timeout=600)
-        conn.request("POST", f"/workflows/{workflow_name}/start")
+        conn.request(
+            "POST",
+            f"/workflows/{workflow_name}/start",
+            body=body,
+            headers={"Content-Type": "application/json"},
+        )
         resp = conn.getresponse()
         raw = resp.read()
         conn.close()
@@ -323,7 +332,11 @@ def build_parser() -> argparse.ArgumentParser:
     # -- workflow --
     workflow = subparsers.add_parser("workflow", help="Workflow management")
     workflow_sub = workflow.add_subparsers(dest="workflow_action")
-    workflow_sub.add_parser("start", help="Start a workflow run")
+    workflow_start = workflow_sub.add_parser("start", help="Start a workflow run")
+    workflow_start.add_argument("workflow_name", help="Name of the workflow to start")
+    workflow_start.add_argument(
+        "--task", default="", help="Optional task text seeding trigger.task"
+    )
 
     # -- run --
     run = subparsers.add_parser("run", help="Inspect workflow runs")
@@ -369,7 +382,7 @@ def main(argv: list[str] | None = None) -> None:
         if not args.workflow_action:
             parser.parse_args(["workflow", "-h"])
         elif args.workflow_action == "start":
-            _run_workflow_start()
+            _run_workflow_start(args.workflow_name, args.task)
 
     elif args.command == "run":
         if not args.run_action:

@@ -83,17 +83,16 @@ class TestWorkflowStart:
         assert resp.status_code == 404
         assert "Unknown workflow" in resp.json()["error"]
 
-    def test_known_workflow_start_responds(self, client, tmp_path, monkeypatch):
+    def test_known_workflow_start_responds(self, isolated_engine):
         """Known workflow start endpoint returns a non-404 response.
 
-        The start endpoint runs the workflow synchronously against the engine's
-        file-backed state and the ``work/`` task folder, both resolved relative
-        to the working directory. Run from a temp cwd so the test never mutates
-        the real repo's tasks, logs, or run state — with no tasks present the
-        endpoint returns ``no_tasks`` cleanly, which is still a non-404.
+        The engine resolves its state, logs, and work paths to absolute at load,
+        so the start endpoint never depends on the working directory. The
+        ``isolated_engine`` fixture points those paths at a temp scaffold, so the
+        run writes there instead of the real repo.
         """
-        monkeypatch.chdir(tmp_path)
-        resp = client.post("/workflows/geartrain-dev/start")
+        client = TestClient(create_app(isolated_engine))
+        resp = client.post("/workflows/sample-dev/start", json={"task": "do X"})
         assert resp.status_code != 404
 
 
