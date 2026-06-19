@@ -65,6 +65,7 @@ Agents read from and write to git-backed markdown memory. The markdown files are
 - `GT-P5-04` Implement Scope Isolation and Visibility
 - `GT-P5-05` Implement Secret-Pattern Write Guardrail
 - `GT-P5-06` Add Memory Tests
+- `GT-P5-07` Scope File-Based Memory by Workflow Folder (follow-up)
 
 ## Phase 6: GitHub Integration
 

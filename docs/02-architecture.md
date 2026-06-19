@@ -28,6 +28,22 @@ GearTrain is organized into five layers, bottom to top. Each layer has a clear r
 
 ---
 
+## Design Principles
+
+### The engine is workflow- and workspace-agnostic
+
+The engine provides only generic config and runtime layers. It loads, validates, and runs whatever a workspace defines — agents, workflows, and memory. It must know no workflow by name, and no workspace is special.
+
+Anything specific to a particular workspace or workflow lives in that workspace's config, never in engine source. This includes trigger policies, task selection, and any per-workflow behavior. A workflow that needs to pick work from a folder, scan a queue, or shape its own inputs expresses that as configuration or workflow nodes — not engine code.
+
+A workspace is a config source the engine reads through one interface. Today it is a directory of files; later it can be a database, an object store like S3, or a remote service. The backing store never reaches the runtime — the engine resolves a workspace the same way regardless.
+
+`.geartrain/` is not "the config." It is one workspace instance: this repository's own, checked in so GearTrain can dogfood itself. From the engine's point of view it is a regular workspace like any other. Delete `.geartrain/` and no engine functionality is affected — there is simply no workspace to load. GearTrain's own development workflow is just another workflow, not a built-in.
+
+Starting a workflow instantiates it and runs it from its entry node. The `trigger` field is declarative metadata; the only runtime behavior today is "run the workflow." New trigger types are added as real, generic triggers are implemented — not to satisfy one workspace.
+
+---
+
 ## Layer 1: Agents
 
 ### Responsibility
