@@ -90,6 +90,7 @@ The engine exposes run-based observability without shipping dashboards. This pha
 
 The GearTrain team can clone the repo, run the feature-development workflow, and get a working PR. This phase is the MVP.
 
+- `GT-P8-00` Make Workflow Execution Config-Driven (prerequisite: remove the hardcoded geartrain-dev path)
 - `GT-P8-01` Define Dogfooding Agents
 - `GT-P8-02` Define feature-development Workflow
 - `GT-P8-03` Seed Project Memory
